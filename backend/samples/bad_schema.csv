@@ -1,0 +1,2 @@
+pipeline_name,enabled,source_table,target_table
+Load Orders,true,raw.orders,staging.orders

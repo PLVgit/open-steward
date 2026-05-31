@@ -1,0 +1,4 @@
+config_key,pipeline_name,enabled,source_table,target_table,sql_query,execution_order,primary_key,load_type
+etl_001,ETL A,true,table_a,table_b,,1,,full
+etl_002,ETL B,true,table_b,table_c,,2,,full
+etl_003,ETL C,true,table_c,table_a,,3,,full
