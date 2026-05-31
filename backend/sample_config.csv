@@ -1,0 +1,8 @@
+config_key,pipeline_name,enabled,source_table,target_table,sql_query,execution_order,primary_key,load_type
+etl_001,Load Raw Orders,true,raw.orders,staging.orders,SELECT * FROM raw.orders,1,order_id,full
+etl_002,Load Raw Customers,true,raw.customers,staging.customers,SELECT * FROM raw.customers,1,customer_id,full
+etl_003,Transform Orders,true,staging.orders,mart.orders,SELECT * FROM staging.orders,2,order_id,full
+etl_004,Transform Customers,true,staging.customers,mart.customers,SELECT * FROM staging.customers,2,customer_id,full
+etl_005,Load Raw Events,false,raw.events,staging.events,SELECT * FROM raw.events,3,event_id,incremental
+etl_006,Transform Events,true,staging.events,mart.events,SELECT * FROM staging.events,4,event_id,full
+etl_007,Load Raw Orders Alt,true,raw.orders,staging.orders,SELECT * FROM raw.orders WHERE flag=1,1,order_id,full
