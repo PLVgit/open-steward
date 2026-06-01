@@ -1,0 +1,12 @@
+customer_id,name,email,age_str
+101,Alice Smith,alice@example.com,28
+102,Bob Jones,bob@example.com,35
+103,Carol White,carol@example.com,42
+104,David Brown,david@example.com,31
+105,Emma Davis,emma@example.com,26
+106,Frank Miller,frank@example.com,48
+107,Grace Wilson,grace@example.com,33
+108,Henry Moore,henry@example.com,55
+109,Iris Taylor,iris@example.com,29
+110,Jack Anderson,jack@example.com,37
+101,Alice Smith,alice@example.com,28

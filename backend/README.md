@@ -1,73 +1,289 @@
-# Open Steward — Backend
+# Open Steward
 
-Local-first pipeline intelligence for Analytics Engineers.
+> Local-first pipeline intelligence for Analytics Engineers.
 
-Scans SQL-config-driven ETL pipelines, reconstructs dependencies, detects structural issues and validates data quality.
+Open Steward scans SQL-config-driven ETL pipelines, reconstructs their dependencies, detects risky transformations, and validates data quality — all from a simple CSV config and optional local table snapshots. No cloud required, no agents, no database connections in the first MVP.
 
 ---
 
-## Setup
+## Quick start
 
 ```bash
 cd backend
 pip install -e ".[dev]"
+open-steward list --file demo_data/demo_config.csv
+```
+
+> **Windows / PATH note:** If `open-steward` is not found after install, either add the Python scripts directory to your PATH or invoke the tool as `python -m app.cli` from the `backend/` directory.
+
+---
+
+## Demo walkthrough
+
+The `demo_data/` directory contains a small e-commerce pipeline config and local table snapshots. Each step below shows the exact command and its output.
+
+### Pipeline: what's configured
+
+The demo models a four-job pipeline:
+
+| Job | Source | Target | Status |
+|-----|--------|--------|--------|
+| `etl_001` — Load Orders | `raw.orders` | `staging.orders` | enabled |
+| `etl_002` — Load Customers | `raw.customers` | `staging.customers` | enabled |
+| `etl_003` — Enrich Orders | `staging.orders` | `mart.orders_enriched` | enabled |
+| `etl_004` — Daily Revenue | `mart.orders_enriched` | `mart.daily_revenue` | **disabled** |
+
+---
+
+### 1. List all ETL jobs
+
+```bash
+open-steward list --file demo_data/demo_config.csv
+```
+
+```
+Open Steward  ·  demo_config.csv  ·  4 jobs (3 enabled)
+
+KEY      NAME            ENABLED  SOURCE                TARGET                LOAD
+etl_001  Load Orders     yes      raw.orders            staging.orders        full
+etl_002  Load Customers  yes      raw.customers         staging.customers     full
+etl_003  Enrich Orders   yes      staging.orders        mart.orders_enriched  full
+etl_004  Daily Revenue   no       mart.orders_enriched  mart.daily_revenue    incremental
 ```
 
 ---
 
-## CLI
-
-### Check a pipeline config for structural issues
+### 2. Show the dependency graph and execution order
 
 ```bash
-open-steward check --file /path/to/etl_config.csv
+open-steward graph --file demo_data/demo_config.csv
 ```
 
-Prints findings grouped by severity (errors, warnings, info).  
-Exits with code `1` if any errors are found — useful in CI pipelines.
+```
+Open Steward  ·  demo_config.csv  ·  execution order
 
-### List all ETL jobs
+  1   raw.orders
+  2   raw.customers
+  3   staging.orders
+  4   staging.customers
+  5   mart.orders_enriched
+  6   mart.daily_revenue
 
-```bash
-open-steward list --file /path/to/etl_config.csv
+No cycles detected.  ✓
 ```
 
-### Show execution order
-
-```bash
-open-steward graph --file /path/to/etl_config.csv
-```
-
-Prints the topological execution order of pipeline tables.  
-Exits with code `1` and reports the affected tables if a cycle is detected.
-
-### Using the sample config
-
-```bash
-open-steward check --file backend/samples/sample_config.csv
-open-steward list  --file backend/samples/sample_config.csv
-open-steward graph --file backend/samples/sample_config.csv
-```
+> **Note:** The graph command includes **all jobs** — both enabled and disabled. Disabled jobs are not hidden from the dependency graph because downstream jobs may still depend on their output tables, and the full graph is needed to detect missing or broken dependencies. Use `open-steward list` to see which jobs are enabled or disabled.
 
 ---
 
-## API
+### 3. Check for structural and SQL issues (no data required)
 
-Start the development server:
+```bash
+open-steward check --file demo_data/demo_config.csv
+```
+
+```
+Open Steward  ·  demo_config.csv
+
+No errors.
+
+WARNINGS (2)
+
+  [select_star]  etl_001
+  Job 'etl_001' uses SELECT *, which may expose unexpected columns to downstream consumers.
+  → Replace SELECT * with an explicit column list.
+
+  [explicit_cast]  etl_002
+  Job 'etl_002' contains a CAST or TRY_CAST expression that may silently change data types.
+  → Verify that the cast is intentional and that downstream consumers expect the converted type.
+
+INFO (2)
+
+  [missing_filter_on_full_load]  etl_001
+  Job 'etl_001' is a full load with no WHERE or LIMIT clause. It will replace the entire target table on every run.
+  → Confirm this full replacement is intentional, or add a WHERE/LIMIT clause to scope the load.
+
+  [missing_filter_on_full_load]  etl_002
+  Job 'etl_002' is a full load with no WHERE or LIMIT clause. It will replace the entire target table on every run.
+  → Confirm this full replacement is intentional, or add a WHERE/LIMIT clause to scope the load.
+
+────────────────────────────────────────────────
+0 errors · 2 warnings · 2 info
+```
+
+Exits with code `0` — no errors found. Exit code `1` means at least one error finding.
+
+`etl_003` is not flagged because its SQL contains a `WHERE` clause. `etl_004` is not flagged because its `load_type` is `incremental`.
+
+---
+
+### 4. Check with local data snapshots (adds reconciliation)
+
+The `--data-dir` flag points Open Steward at local CSV or Parquet snapshots of source and target tables. These are compared to detect row loss, duplicate primary keys, and null primary keys.
+
+```bash
+open-steward check --file demo_data/demo_config.csv --data-dir demo_data
+```
+
+```
+Open Steward  ·  demo_config.csv
+
+ERRORS (1)
+
+  [duplicate_primary_key]  staging.customers
+  Primary key 'customer_id' is not unique in target table 'staging.customers': duplicate_key_count=1, target_count=11.
+  → Investigate the ETL logic that writes to 'staging.customers'. Deduplicate on 'customer_id' before loading, or add a DISTINCT clause.
+
+WARNINGS (3)
+
+  [select_star]  etl_001
+  Job 'etl_001' uses SELECT *, which may expose unexpected columns to downstream consumers.
+  → Replace SELECT * with an explicit column list.
+
+  [explicit_cast]  etl_002
+  Job 'etl_002' contains a CAST or TRY_CAST expression that may silently change data types.
+  → Verify that the cast is intentional and that downstream consumers expect the converted type.
+
+  [row_count_drop]  staging.orders
+  Full-load target has fewer rows than source: source_count=20, target_count=18, lost_rows=2, loss_pct=10.0%.
+  → Check the ETL transformation for unintended filtering or data loss. Consider adding row count assertions to the pipeline.
+
+INFO (2)
+
+  [missing_filter_on_full_load]  etl_001
+  Job 'etl_001' is a full load with no WHERE or LIMIT clause. It will replace the entire target table on every run.
+  → Confirm this full replacement is intentional, or add a WHERE/LIMIT clause to scope the load.
+
+  [missing_filter_on_full_load]  etl_002
+  Job 'etl_002' is a full load with no WHERE or LIMIT clause. It will replace the entire target table on every run.
+  → Confirm this full replacement is intentional, or add a WHERE/LIMIT clause to scope the load.
+
+────────────────────────────────────────────────
+1 errors · 3 warnings · 2 info
+```
+
+Exits with code `1` — one error finding (`duplicate_primary_key`).
+
+`etl_003` and `etl_004` are silently skipped: `etl_003`'s target file does not exist locally, and `etl_004` is disabled. Missing local snapshots are never treated as errors — reconciliation is opt-in.
+
+---
+
+### 5. Profile a table for data quality issues
+
+```bash
+open-steward profile --table staging.orders --data-dir demo_data
+```
+
+```
+Open Steward  ·  staging.orders  ·  profile
+
+18 rows · 5 columns
+
+COLUMN       DTYPE    NULLS    EMPTY    DISTINCT
+order_id     BIGINT   0.0%     —        100.0%
+customer_id  BIGINT   0.0%     —        55.6%
+amount       DOUBLE   0.0%     —        94.4%
+status       VARCHAR  0.0%     0.0%     16.7%
+coupon_code  VARCHAR  83.3%    0.0%     16.7%
+
+────────────────────────────────────────────────
+WARNINGS (1)
+
+  [high_null_rate]  staging.orders
+  Column 'coupon_code' in 'staging.orders' has 83.3% null values (threshold: 20.0%).
+  → Investigate whether null values in 'coupon_code' are expected.
+
+────────────────────────────────────────────────
+0 errors · 1 warnings · 0 info
+```
+
+`—` means the metric is not applicable (empty string rate is only tracked for VARCHAR columns).
+
+---
+
+## Understanding findings
+
+### Structural findings
+
+| Finding | Severity | What it means |
+|---------|----------|---------------|
+| `circular_dependency` | error | ETL jobs form a loop — no valid execution order exists |
+| `duplicate_target` | error | Two or more jobs write to the same target table |
+| `disabled_dependency` | error | An enabled job depends on output produced only by a disabled job |
+| `unresolved_upstream` | info | A source table is not produced by any job and does not match a known external prefix (`raw.`, `source.`, `landing.`, `external.`) |
+
+### SQL findings
+
+Detected by parsing the `sql_query` field of each job using [sqlglot](https://github.com/tobymao/sqlglot). Jobs with no `sql_query` are silently skipped.
+
+| Finding | Severity | What it means |
+|---------|----------|---------------|
+| `select_star` | warning | Query uses `SELECT *` — exposes unexpected columns if the source schema changes |
+| `explicit_cast` | warning | Query uses `CAST()` or `TRY_CAST()` — may silently change types for downstream consumers |
+| `cross_join` | error | Query contains an explicit `CROSS JOIN` — likely produces a cartesian product |
+| `missing_filter_on_full_load` | info | Full-load job has no `WHERE` or `LIMIT` clause — will replace the entire target table on every run |
+| `unparseable_sql` | warning | SQL could not be parsed — query syntax may be dialect-specific or malformed |
+
+### Reconciliation findings
+
+Require local table snapshots (CSV or Parquet). Only enabled jobs are reconciled. Jobs where either the source or target file is absent are silently skipped.
+
+| Finding | Severity | What it means |
+|---------|----------|---------------|
+| `empty_target` | warning | Target table has 0 rows while source has rows |
+| `row_count_drop` | warning | Full-load target has fewer rows than source — includes `source_count`, `target_count`, `lost_rows`, `loss_pct` |
+| `null_primary_key` | error | Primary key column contains null values in the target — includes `null_count`, `null_pct` |
+| `duplicate_primary_key` | error | Primary key is not unique in the target — includes `duplicate_key_count` |
+
+### Profiling findings
+
+Generated per column by `open-steward profile`. Thresholds are fixed defaults in the current release.
+
+| Finding | Severity | Threshold | What it means |
+|---------|----------|-----------|---------------|
+| `all_nulls` | error | 100% null | Column is entirely null |
+| `high_null_rate` | warning | ≥ 20% null | Column has a high proportion of null values |
+| `constant_column` | info | 1 distinct value, row count > 1 | Column has only one unique value — may be a fixed category or a loading bug |
+| `high_empty_string_rate` | warning | ≥ 10% empty strings | VARCHAR column has many empty string values (distinct from null) |
+
+---
+
+## CLI reference
+
+```
+open-steward [COMMAND] [OPTIONS]
+```
+
+| Command | Required options | Optional options | Description |
+|---------|-----------------|-----------------|-------------|
+| `list` | `--file PATH` | — | List all ETL jobs in the config |
+| `graph` | `--file PATH` | — | Show dependency graph and execution order |
+| `check` | `--file PATH` | `--data-dir PATH` | Run all structural, SQL and reconciliation checks |
+| `profile` | `--table NAME` `--data-dir PATH` | — | Profile a table for data quality issues |
+
+All commands exit `0` on success or no error findings, and `1` if any `error`-severity findings are detected. This makes them suitable for CI pipelines.
+
+---
+
+## API reference
+
+Start the API server:
 
 ```bash
 cd backend
 uvicorn app.main:app --reload
 ```
 
-Endpoints (all accept `?file=<filename>` — files must be in `backend/samples/`):
+Interactive docs: `http://localhost:8000/docs`
+
+All endpoints accept `?file=<filename>` where the file must be located inside `backend/samples/`.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/pipelines/` | List all jobs |
-| GET | `/pipelines/{config_key}` | Get one job |
+| GET | `/pipelines/{config_key}` | Get one job by key |
 | GET | `/graph/` | Dependency graph and execution order |
-| GET | `/findings/` | All structural findings |
+| GET | `/findings/` | All structural and SQL findings |
 
 Example:
 
@@ -77,9 +293,78 @@ curl "http://localhost:8000/findings/?file=sample_config.csv"
 
 ---
 
-## Tests
+## Project structure
+
+```
+backend/
+  app/
+    adapters/
+      base.py                    # PipelineSource protocol
+      csv_adapter.py             # reads ETL config CSVs
+      data_source.py             # DataSource protocol
+      local_file_data_source.py  # DuckDB-backed local file reader
+    api/
+      routes/
+        findings.py
+        graph.py
+        pipelines.py
+      deps.py                    # shared FastAPI dependencies
+    models/
+      column_info.py
+      finding.py
+      pipeline_job.py
+      table_profile.py
+    services/
+      dq_profiler.py             # per-column data quality profiling
+      finding_detector.py        # structural findings
+      graph_builder.py           # NetworkX dependency graph
+      reconciliation_engine.py   # source vs target reconciliation
+      sql_analyzer.py            # sqlglot SQL pattern detection
+    tests/
+    cli.py                       # typer CLI
+    main.py                      # FastAPI application
+  demo_data/                     # demo pipeline config and table snapshots
+    demo_config.csv
+    raw/
+    staging/
+  samples/                       # sample configs for API and tests
+  pyproject.toml
+  README.md
+```
+
+---
+
+## Running tests
 
 ```bash
 cd backend
 python -m pytest -v
 ```
+
+---
+
+## Current limitations
+
+- **One source table per job.** `PipelineJob.source_table` is a single string. ETL jobs that join multiple source tables are only partially modelled — the SQL is stored in `sql_query` for future analysis.
+- **Reconciliation requires local snapshots.** There is no live database connection. Source and target tables must be exported to CSV or Parquet files under `--data-dir` before reconciliation can run.
+- **Single-column primary keys only.** Composite primary keys (e.g. `order_id, line_id`) are not supported in reconciliation or profiling.
+- **Column name restrictions.** Columns with spaces or special characters (e.g. `Order Date`) are skipped in profiling. Column names must match `[A-Za-z0-9_]+`.
+- **No frontend.** All interaction is via the CLI and REST API. A React UI is on the roadmap.
+- **No authentication or multi-tenancy.** Open Steward is a single-user local tool in its current form.
+
+---
+
+## Roadmap
+
+**Near term**
+- React UI with interactive pipeline graph (React Flow)
+- Row loss tolerance thresholds per job (`row_loss_tolerance_pct`)
+- Filter-aware reconciliation: explain row loss caused by `WHERE` clauses
+- Distribution and histogram profiling (Polars)
+
+**Later**
+- Join-aware advisory statistics (`join_match_rate`, unmatched rows, possible row multiplication)
+- ETL-level statistics panel per job (full reconciliation summary for UI)
+- dbt adapter (read model definitions as pipeline jobs)
+- `--output json` flag on all CLI commands
+- Suggested data quality rules from profile results
