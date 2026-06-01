@@ -5,6 +5,7 @@ import networkx as nx
 from app.models.finding import ValidationFinding
 from app.models.pipeline_job import PipelineJob
 from app.services.graph_builder import detect_cycles
+from app.services.sql_analyzer import analyze_sql
 
 _EXTERNAL_PREFIXES = ("raw.", "source.", "landing.", "external.")
 
@@ -15,6 +16,7 @@ def detect_findings(jobs: list[PipelineJob], graph: nx.DiGraph) -> list[Validati
     findings.extend(_duplicate_targets(jobs))
     findings.extend(_unresolved_upstreams(jobs))
     findings.extend(_disabled_dependencies(jobs))
+    findings.extend(analyze_sql(jobs))
     return findings
 
 
