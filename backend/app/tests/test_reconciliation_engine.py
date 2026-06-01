@@ -1,0 +1,255 @@
+from pathlib import Path
+
+import pytest
+
+from app.adapters.local_file_data_source import LocalFileDataSource
+from app.models.pipeline_job import PipelineJob
+from app.services.reconciliation_engine import reconcile_jobs
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _csv(data_dir: Path, table: str, content: str) -> None:
+    parts = table.split(".", maxsplit=1)
+    path = (
+        data_dir / parts[0] / f"{parts[1]}.csv"
+        if len(parts) == 2
+        else data_dir / f"{parts[0]}.csv"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _job(
+    source: str = "raw.orders",
+    target: str = "staging.orders",
+    enabled: bool = True,
+    pk: str | None = "id",
+    load_type: str | None = "full",
+    key: str = "etl_001",
+) -> PipelineJob:
+    return PipelineJob(
+        config_key=key,
+        pipeline_name="Test Job",
+        enabled=enabled,
+        source_table=source,
+        target_table=target,
+        primary_key=pk,
+        load_type=load_type,
+    )
+
+
+ORDERS_3 = "id,name\n1,Alice\n2,Bob\n3,Charlie\n"
+ORDERS_2 = "id,name\n1,Alice\n2,Bob\n"
+ORDERS_EMPTY = "id,name\n"  # headers only, 0 data rows
+
+
+# ── empty_target ──────────────────────────────────────────────────────────────
+
+def test_empty_target_warning(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_EMPTY)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None)], ds)
+    types = [f.finding_type for f in findings]
+    assert "empty_target" in types
+    assert findings[types.index("empty_target")].severity == "warning"
+
+
+def test_empty_target_message_includes_counts(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_EMPTY)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None)], ds)
+    msg = next(f.message for f in findings if f.finding_type == "empty_target")
+    assert "source_count=3" in msg
+    assert "target_count=0" in msg
+
+
+def test_both_empty_no_empty_target_finding(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_EMPTY)
+    _csv(tmp_path, "staging.orders", ORDERS_EMPTY)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None, load_type=None)], ds)
+    assert not any(f.finding_type == "empty_target" for f in findings)
+
+
+# ── row_count_drop ────────────────────────────────────────────────────────────
+
+def test_row_count_drop_warning(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_2)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None)], ds)
+    types = [f.finding_type for f in findings]
+    assert "row_count_drop" in types
+    assert findings[types.index("row_count_drop")].severity == "warning"
+
+
+def test_row_count_drop_message_includes_metrics(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_2)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None)], ds)
+    msg = next(f.message for f in findings if f.finding_type == "row_count_drop")
+    assert "source_count=3" in msg
+    assert "target_count=2" in msg
+    assert "lost_rows=1" in msg
+    assert "loss_pct=" in msg
+
+
+def test_full_load_equal_counts_no_finding(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_3)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None)], ds)
+    assert not any(f.finding_type == "row_count_drop" for f in findings)
+
+
+def test_incremental_load_no_row_count_drop(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_2)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None, load_type="incremental")], ds)
+    assert not any(f.finding_type == "row_count_drop" for f in findings)
+
+
+def test_row_count_drop_not_fired_when_target_empty(tmp_path):
+    # empty_target covers this case; row_count_drop should not also fire
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_EMPTY)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None)], ds)
+    assert not any(f.finding_type == "row_count_drop" for f in findings)
+    assert any(f.finding_type == "empty_target" for f in findings)
+
+
+# ── null_primary_key ──────────────────────────────────────────────────────────
+
+def test_null_primary_key_error(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    # Empty unquoted field in numeric column → NULL in DuckDB
+    _csv(tmp_path, "staging.orders", "id,name\n1,Alice\n,Bob\n3,Charlie\n")
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job()], ds)
+    types = [f.finding_type for f in findings]
+    assert "null_primary_key" in types
+    assert findings[types.index("null_primary_key")].severity == "error"
+
+
+def test_null_primary_key_message_includes_metrics(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", "id,name\n1,Alice\n,Bob\n3,Charlie\n")
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job()], ds)
+    msg = next(f.message for f in findings if f.finding_type == "null_primary_key")
+    assert "null_count=1" in msg
+    assert "target_count=3" in msg
+    assert "null_pct=" in msg
+    assert "id" in msg
+    assert "staging.orders" in msg
+
+
+def test_no_null_primary_key_no_finding(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_3)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job()], ds)
+    assert not any(f.finding_type == "null_primary_key" for f in findings)
+
+
+# ── duplicate_primary_key ─────────────────────────────────────────────────────
+
+def test_duplicate_primary_key_error(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", "id,name\n1,Alice\n1,Alice2\n2,Bob\n")
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job()], ds)
+    types = [f.finding_type for f in findings]
+    assert "duplicate_primary_key" in types
+    assert findings[types.index("duplicate_primary_key")].severity == "error"
+
+
+def test_duplicate_primary_key_message_includes_metrics(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", "id,name\n1,Alice\n1,Alice2\n2,Bob\n")
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job()], ds)
+    msg = next(f.message for f in findings if f.finding_type == "duplicate_primary_key")
+    assert "duplicate_key_count=1" in msg
+    assert "target_count=3" in msg
+    assert "id" in msg
+    assert "staging.orders" in msg
+
+
+def test_no_duplicate_primary_key_no_finding(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_3)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job()], ds)
+    assert not any(f.finding_type == "duplicate_primary_key" for f in findings)
+
+
+# ── skip conditions ───────────────────────────────────────────────────────────
+
+def test_disabled_job_skipped(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_EMPTY)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(enabled=False)], ds)
+    assert findings == []
+
+
+def test_source_missing_skipped(tmp_path):
+    _csv(tmp_path, "staging.orders", ORDERS_3)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job()], ds)
+    assert findings == []
+
+
+def test_target_missing_skipped(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job()], ds)
+    assert findings == []
+
+
+def test_no_primary_key_skips_pk_checks(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    # Target has duplicate IDs — but no primary_key set, so no PK checks run
+    _csv(tmp_path, "staging.orders", "id,name\n1,Alice\n1,Alice2\n2,Bob\n")
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None)], ds)
+    assert not any(f.finding_type in ("duplicate_primary_key", "null_primary_key") for f in findings)
+
+
+# ── finding metadata ──────────────────────────────────────────────────────────
+
+def test_affected_job_set_correctly(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_EMPTY)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None, key="etl_042")], ds)
+    assert all(f.affected_job == "etl_042" for f in findings)
+
+
+def test_affected_table_on_pk_findings(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", "id,name\n1,Alice\n1,Alice2\n2,Bob\n")
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job()], ds)
+    pk_findings = [f for f in findings if f.finding_type == "duplicate_primary_key"]
+    assert all(f.affected_table == "staging.orders" for f in pk_findings)
+
+
+# ── multiple findings ─────────────────────────────────────────────────────────
+
+def test_multiple_findings_same_job(tmp_path):
+    # Source: 3 rows. Target: 2 rows with duplicate PK → row_count_drop + duplicate_primary_key
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", "id,name\n1,Alice\n1,Alice2\n")
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job()], ds)
+    types = [f.finding_type for f in findings]
+    assert "row_count_drop" in types
+    assert "duplicate_primary_key" in types

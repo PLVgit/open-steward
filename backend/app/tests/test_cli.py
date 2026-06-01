@@ -87,3 +87,48 @@ def test_graph_cycle_exits_nonzero():
     assert result.exit_code == 1
     assert "Cycle detected" in result.output
     assert "table_a" in result.output
+
+
+# ── check --data-dir ───────────────────────────────────────────────────────────
+
+def test_check_with_data_dir_runs_reconciliation(tmp_path):
+    config = tmp_path / "config.csv"
+    config.write_text(
+        "config_key,pipeline_name,enabled,source_table,target_table,primary_key,load_type\n"
+        "etl_001,Load Orders,true,raw.orders,staging.orders,id,full\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "data" / "raw").mkdir(parents=True)
+    (tmp_path / "data" / "staging").mkdir(parents=True)
+    (tmp_path / "data" / "raw" / "orders.csv").write_text("id,name\n1,Alice\n2,Bob\n3,Charlie\n", encoding="utf-8")
+    (tmp_path / "data" / "staging" / "orders.csv").write_text("id,name\n1,Alice\n1,Alice2\n2,Bob\n", encoding="utf-8")
+    result = runner.invoke(app, ["check", "--file", str(config), "--data-dir", str(tmp_path / "data")])
+    assert "duplicate_primary_key" in result.output
+
+
+def test_check_without_data_dir_no_reconciliation(tmp_path):
+    config = tmp_path / "config.csv"
+    config.write_text(
+        "config_key,pipeline_name,enabled,source_table,target_table,primary_key,load_type\n"
+        "etl_001,Load Orders,true,raw.orders,staging.orders,id,full\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["check", "--file", str(config)])
+    assert result.exit_code == 0
+    assert "duplicate_primary_key" not in result.output
+    assert "row_count_drop" not in result.output
+
+
+def test_check_with_data_dir_exits_1_on_error(tmp_path):
+    config = tmp_path / "config.csv"
+    config.write_text(
+        "config_key,pipeline_name,enabled,source_table,target_table,primary_key,load_type\n"
+        "etl_001,Load Orders,true,raw.orders,staging.orders,id,full\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "data" / "raw").mkdir(parents=True)
+    (tmp_path / "data" / "staging").mkdir(parents=True)
+    (tmp_path / "data" / "raw" / "orders.csv").write_text("id,name\n1,Alice\n2,Bob\n", encoding="utf-8")
+    (tmp_path / "data" / "staging" / "orders.csv").write_text("id,name\n1,Alice\n1,Bob\n", encoding="utf-8")
+    result = runner.invoke(app, ["check", "--file", str(config), "--data-dir", str(tmp_path / "data")])
+    assert result.exit_code == 1

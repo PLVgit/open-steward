@@ -3,10 +3,12 @@ from pathlib import Path
 import typer
 
 from app.adapters.csv_adapter import CsvAdapter
+from app.adapters.local_file_data_source import LocalFileDataSource
 from app.models.finding import ValidationFinding
 from app.models.pipeline_job import PipelineJob
 from app.services.finding_detector import detect_findings
 from app.services.graph_builder import build_graph, detect_cycles, get_execution_order
+from app.services.reconciliation_engine import reconcile_jobs
 
 app = typer.Typer(
     name="open-steward",
@@ -122,11 +124,19 @@ def _render_graph_text(graph, file: Path) -> int:
 # ── commands ──────────────────────────────────────────────────────────────────
 
 @app.command()
-def check(file: Path = typer.Option(..., "--file", "-f", help="Path to ETL config CSV")) -> None:
+def check(
+    file: Path = typer.Option(..., "--file", "-f", help="Path to ETL config CSV"),
+    data_dir: Path | None = typer.Option(
+        None, "--data-dir", "-d",
+        help="Directory of local table snapshots for reconciliation (optional).",
+    ),
+) -> None:
     """Run all structural checks and report findings."""
     jobs = _load(file)
     graph = build_graph(jobs)
     findings = detect_findings(jobs, graph)
+    if data_dir is not None:
+        findings = findings + reconcile_jobs(jobs, LocalFileDataSource(data_dir))
     code = _render_check_text(findings, file)
     raise typer.Exit(code=code)
 
