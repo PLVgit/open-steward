@@ -6,6 +6,8 @@ from app.adapters.csv_adapter import CsvAdapter
 from app.adapters.local_file_data_source import LocalFileDataSource
 from app.models.finding import ValidationFinding
 from app.models.pipeline_job import PipelineJob
+from app.models.table_profile import TableProfile
+from app.services.dq_profiler import detect_profile_findings, profile_table
 from app.services.finding_detector import detect_findings
 from app.services.graph_builder import build_graph, detect_cycles, get_execution_order
 from app.services.reconciliation_engine import reconcile_jobs
@@ -154,4 +156,75 @@ def graph(file: Path = typer.Option(..., "--file", "-f", help="Path to ETL confi
     jobs = _load(file)
     g = build_graph(jobs)
     code = _render_graph_text(g, file)
+    raise typer.Exit(code=code)
+
+
+def _render_profile_text(tbl: TableProfile, findings: list[ValidationFinding]) -> int:
+    typer.echo(typer.style(f"Open Steward  ·  {tbl.table_name}  ·  profile", bold=True))
+    typer.echo()
+    typer.echo(f"{tbl.row_count} rows · {tbl.column_count} columns")
+    typer.echo()
+
+    if tbl.columns:
+        w_col = max(len("COLUMN"), *(len(c.column_name) for c in tbl.columns)) + 2
+        w_dtype = max(len("DTYPE"), *(len(c.dtype) for c in tbl.columns)) + 2
+
+        typer.echo(typer.style(
+            f"{'COLUMN':<{w_col}}{'DTYPE':<{w_dtype}}{'NULLS':<9}{'EMPTY':<9}DISTINCT",
+            bold=True,
+        ))
+        for col in tbl.columns:
+            empty_str = f"{col.empty_string_pct}%" if col.empty_string_pct is not None else "—"
+            typer.echo(
+                f"{col.column_name:<{w_col}}{col.dtype:<{w_dtype}}"
+                f"{col.null_pct}%{'':<{8 - len(str(col.null_pct))}}"
+                f"{empty_str:<9}{col.distinct_pct}%"
+            )
+        typer.echo()
+
+    if not findings:
+        typer.echo(typer.style("No findings.  ✓", fg=typer.colors.GREEN))
+        typer.echo()
+        typer.echo("0 errors · 0 warnings · 0 info")
+        return 0
+
+    errors = [f for f in findings if f.severity == "error"]
+    warnings = [f for f in findings if f.severity == "warning"]
+    infos = [f for f in findings if f.severity == "info"]
+
+    def _group(items: list[ValidationFinding], label: str, color: str) -> None:
+        if not items:
+            return
+        typer.echo(typer.style(f"{label} ({len(items)})", fg=color, bold=True))
+        typer.echo()
+        for f in items:
+            typer.echo(f"  [{f.finding_type}]  {f.affected_table or ''}")
+            typer.echo(f"  {f.message}")
+            if f.recommendation:
+                typer.echo(f"  → {f.recommendation}")
+            typer.echo()
+
+    typer.echo("─" * 48)
+    _group(errors, "ERRORS", typer.colors.RED)
+    _group(warnings, "WARNINGS", typer.colors.YELLOW)
+    _group(infos, "INFO", typer.colors.BRIGHT_BLACK)
+    typer.echo("─" * 48)
+    typer.echo(f"{len(errors)} errors · {len(warnings)} warnings · {len(infos)} info")
+    return 1 if errors else 0
+
+
+@app.command()
+def profile(
+    table: str = typer.Option(..., "--table", "-t", help="Table name to profile (e.g. staging.orders)."),
+    data_dir: Path = typer.Option(..., "--data-dir", "-d", help="Directory of local table files."),
+) -> None:
+    """Profile a table for data quality issues."""
+    ds = LocalFileDataSource(data_dir)
+    try:
+        tbl = profile_table(table, ds)
+    except FileNotFoundError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    findings = detect_profile_findings(tbl)
+    code = _render_profile_text(tbl, findings)
     raise typer.Exit(code=code)

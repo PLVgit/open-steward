@@ -132,3 +132,43 @@ def test_check_with_data_dir_exits_1_on_error(tmp_path):
     (tmp_path / "data" / "staging" / "orders.csv").write_text("id,name\n1,Alice\n1,Bob\n", encoding="utf-8")
     result = runner.invoke(app, ["check", "--file", str(config), "--data-dir", str(tmp_path / "data")])
     assert result.exit_code == 1
+
+
+# ── profile ────────────────────────────────────────────────────────────────────
+
+def test_profile_command_shows_column_names(tmp_path):
+    (tmp_path / "staging").mkdir()
+    (tmp_path / "staging" / "orders.csv").write_text(
+        "id,name,score\n1,Alice,90\n2,Bob,85\n3,Charlie,92\n", encoding="utf-8"
+    )
+    result = runner.invoke(app, ["profile", "--table", "staging.orders", "--data-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "id" in result.output
+    assert "name" in result.output
+    assert "score" in result.output
+
+
+def test_profile_command_shows_row_count(tmp_path):
+    (tmp_path / "staging").mkdir()
+    (tmp_path / "staging" / "orders.csv").write_text(
+        "id,name\n1,Alice\n2,Bob\n3,Charlie\n", encoding="utf-8"
+    )
+    result = runner.invoke(app, ["profile", "--table", "staging.orders", "--data-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "3 rows" in result.output
+
+
+def test_profile_command_shows_findings(tmp_path):
+    # score column: 1 null in 3 rows → 33.3% > 20% threshold → high_null_rate warning
+    (tmp_path / "staging").mkdir()
+    (tmp_path / "staging" / "orders.csv").write_text(
+        "id,score\n1,90\n2,\n3,85\n", encoding="utf-8"
+    )
+    result = runner.invoke(app, ["profile", "--table", "staging.orders", "--data-dir", str(tmp_path)])
+    assert "high_null_rate" in result.output
+
+
+def test_profile_command_missing_table_exits_1(tmp_path):
+    result = runner.invoke(app, ["profile", "--table", "staging.orders", "--data-dir", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "Error" in result.output
