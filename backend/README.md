@@ -201,6 +201,29 @@ WARNINGS (1)
 
 ---
 
+### 6. Show per-job ETL statistics
+
+`stats` reports the numeric facts of each enabled job's source/target snapshots — the data behind reconciliation, without the judgments. It complements `check`: `check` says *what is wrong*, `stats` says *what happened numerically*.
+
+```bash
+open-steward stats --file demo_data/demo_config.csv --data-dir demo_data
+```
+
+```
+Open Steward  ·  demo_config.csv  ·  3 enabled jobs
+
+KEY      TARGET                SOURCE   TARGET#  LOST    LOSS%    PK NULLS  PK DUPS
+etl_001  staging.orders        20       18       2       10.0%    0         0
+etl_002  staging.customers     10       11       0       0.0%     0         1
+etl_003  mart.orders_enriched  18       —        —       —        —         —
+
+Statistics describe what happened numerically; run 'check' for findings.
+```
+
+`—` means the value is not computable — here `mart.orders_enriched` has no local snapshot, so its target-side metrics are unknown. It does **not** mean zero. Disabled jobs (`etl_004`) are excluded.
+
+---
+
 ## Understanding findings
 
 ### Structural findings
@@ -260,8 +283,9 @@ open-steward [COMMAND] [OPTIONS]
 | `graph` | `--file PATH` | — | Show dependency graph and execution order |
 | `check` | `--file PATH` | `--data-dir PATH` | Run all structural, SQL and reconciliation checks |
 | `profile` | `--table NAME` `--data-dir PATH` | — | Profile a table for data quality issues |
+| `stats` | `--file PATH` `--data-dir PATH` | — | Show per-job ETL statistics (row counts, loss, primary-key metrics) |
 
-All commands exit `0` on success or no error findings, and `1` if any `error`-severity findings are detected. This makes them suitable for CI pipelines.
+`check` and `profile` exit `1` when any `error`-severity finding is detected (else `0`), and `graph` exits `1` when a cycle is detected — suitable for CI pipelines. `list` and `stats` are informational and always exit `0`.
 
 ---
 
@@ -276,19 +300,25 @@ uvicorn app.main:app --reload
 
 Interactive docs: `http://localhost:8000/docs`
 
-All endpoints accept `?file=<filename>` where the file must be located inside `backend/samples/`.
+Config-driven endpoints accept `?file=<filename>`, where the file must be located inside `backend/samples/`. Data-driven endpoints also accept `?data_dir=<subdir>`, confined to `backend/demo_data/` (defaults to `.`). `/profile/` takes `?table=<schema.table>` instead of a config file. These path restrictions keep the HTTP surface safe; the CLI accepts arbitrary local paths.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/pipelines/` | List all jobs |
-| GET | `/pipelines/{config_key}` | Get one job by key |
-| GET | `/graph/` | Dependency graph and execution order |
-| GET | `/findings/` | All structural and SQL findings |
+| Method | Path | Query | Description |
+|--------|------|-------|-------------|
+| GET | `/pipelines/` | `file` | List all jobs |
+| GET | `/pipelines/{config_key}` | `file` | Get one job by key |
+| GET | `/graph/` | `file` | Dependency graph and execution order |
+| GET | `/findings/` | `file` | Structural and SQL findings |
+| GET | `/statistics/` | `file`, `data_dir` | Per-job ETL statistics |
+| GET | `/profile/` | `table`, `data_dir` | Table profile + data-quality findings |
 
-Example:
+> The REST `/findings/` endpoint returns structural + SQL findings only; reconciliation findings are available via the CLI `check --data-dir`. The `/statistics/` endpoint exposes the per-job reconciliation metrics for UI consumption.
+
+Examples:
 
 ```bash
 curl "http://localhost:8000/findings/?file=sample_config.csv"
+curl "http://localhost:8000/statistics/?file=demo_config.csv&data_dir=."
+curl "http://localhost:8000/profile/?table=staging.orders&data_dir=."
 ```
 
 ---
@@ -308,14 +338,21 @@ backend/
         findings.py
         graph.py
         pipelines.py
-      deps.py                    # shared FastAPI dependencies
+        statistics.py            # /statistics endpoint
+        profile.py               # /profile endpoint
+      deps.py                    # shared FastAPI dependencies (path safety)
     models/
       column_info.py
       finding.py
+      job_statistics.py          # per-job ETL statistics model
       pipeline_job.py
       table_profile.py
+    schemas/
+      graph_schema.py
+      profile_schema.py          # /profile response (profile + findings)
     services/
       dq_profiler.py             # per-column data quality profiling
+      etl_statistics.py          # per-job ETL statistics
       finding_detector.py        # structural findings
       graph_builder.py           # NetworkX dependency graph
       reconciliation_engine.py   # source vs target reconciliation
@@ -330,6 +367,8 @@ backend/
   samples/                       # sample configs for API and tests
   pyproject.toml
   README.md
+
+# A separate React + TypeScript UI lives in ../frontend (see frontend/README.md).
 ```
 
 ---
@@ -349,22 +388,25 @@ python -m pytest -v
 - **Reconciliation requires local snapshots.** There is no live database connection. Source and target tables must be exported to CSV or Parquet files under `--data-dir` before reconciliation can run.
 - **Single-column primary keys only.** Composite primary keys (e.g. `order_id, line_id`) are not supported in reconciliation or profiling.
 - **Column name restrictions.** Columns with spaces or special characters (e.g. `Order Date`) are skipped in profiling. Column names must match `[A-Za-z0-9_]+`.
-- **No frontend.** All interaction is via the CLI and REST API. A React UI is on the roadmap.
+- **Frontend wiring is dev-only.** The React UI (`../frontend`) reaches the API through the Vite dev proxy; production serving/build and deployment are out of scope.
 - **No authentication or multi-tenancy.** Open Steward is a single-user local tool in its current form.
 
 ---
 
 ## Roadmap
 
-**Near term**
-- React UI with interactive pipeline graph (React Flow)
-- Row loss tolerance thresholds per job (`row_loss_tolerance_pct`)
-- Filter-aware reconciliation: explain row loss caused by `WHERE` clauses
-- Distribution and histogram profiling (Polars)
+**Shipped**
+- React + TypeScript UI with an interactive pipeline graph (React Flow), findings dashboard, ETL statistics panel and table profile page.
+- ETL-level statistics, exposed via the `stats` CLI command and the `/statistics/` endpoint.
+
+**Next**
+- Filter-aware reconciliation: explain row loss caused by `WHERE` clauses so expected filtering is not flagged as unexpected loss.
+- Join-aware advisory statistics (`join_match_rate`, unmatched rows, possible row multiplication) — surfaced as advisory, not hard errors.
 
 **Later**
-- Join-aware advisory statistics (`join_match_rate`, unmatched rows, possible row multiplication)
-- ETL-level statistics panel per job (full reconciliation summary for UI)
-- dbt adapter (read model definitions as pipeline jobs)
-- `--output json` flag on all CLI commands
-- Suggested data quality rules from profile results
+- dbt adapter (read model definitions as pipeline jobs).
+- Azure Data Factory metadata/log adapter.
+- Read-only live database connectors (e.g. Postgres, Snowflake).
+- Row-loss tolerance thresholds per job (`row_loss_tolerance_pct`).
+- Distribution and histogram profiling (e.g. via Polars).
+- `--output json` flag on all CLI commands; suggested data-quality rules from profile results.
