@@ -29,11 +29,20 @@ describe("App shell", () => {
     }
   });
 
-  it("renders a placeholder for a not-yet-built route", () => {
+  it("renders the Profile page at the /profile route", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          profile: { table_name: "staging.orders", row_count: 0, column_count: 0, columns: [] },
+          findings: [],
+        }),
+      }),
+    );
     renderAt("/profile");
-    expect(
-      screen.getByText(/This view is a placeholder. It will be implemented in Ticket 18/),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Table Profile")).toBeInTheDocument();
   });
 
   it("shows the job count on the Overview page when the backend responds", async () => {

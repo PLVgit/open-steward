@@ -2,9 +2,12 @@
 
 React + TypeScript + Vite frontend for the Open Steward UI. Styled with Tailwind
 and shadcn/ui primitives. Includes the app shell, navigation, routing, a typed
-API client, an Overview page that verifies the backend connection, and the
-**Pipeline Graph** page. The remaining feature views (Findings, Statistics,
-Profile) are placeholders implemented in later tickets.
+API client, and the feature pages: **Overview** (backend connection),
+**Pipeline Graph**, **Findings**, **ETL Statistics**, and **Table Profile**.
+
+The Table Profile page consumes the backend `GET /profile/?table=…&data_dir=…`
+endpoint (added alongside this page; it reuses the `dq_profiler` service and
+returns the table profile plus its data-quality findings).
 
 The graph is rendered with **[`@xyflow/react`](https://reactflow.dev)** (React
 Flow v12 — the current, actively maintained package; the older `reactflow` v11
@@ -67,24 +70,25 @@ The config file read by the API is selected in the header (defaults to
 ```text
 src/
   components/
-    ui/                # shadcn primitives (button, card)
+    ui/                # shadcn primitives (button, card, badge)
     graph/
       PipelineFlow.tsx # React Flow wrapper
     AppShell.tsx       # sidebar nav + layout
-    PlaceholderPage.tsx
   context/
     ConfigContext.tsx  # selected config file (shared by all pages)
   lib/
     api.ts             # typed API client (/api/*)
     graphLayout.ts     # pure GraphResponse -> React Flow nodes/edges
+    findings.ts        # pure summary/filter helpers
+    statistics.ts      # pure summary + null-aware formatters
     types.ts           # TypeScript mirrors of backend models
     utils.ts           # cn() class helper
   pages/
-    OverviewPage.tsx   # live: verifies backend connection
-    GraphPage.tsx      # live: pipeline dependency graph
-    FindingsPage.tsx   # placeholder (Ticket 16)
-    StatisticsPage.tsx # placeholder (Ticket 17)
-    ProfilePage.tsx    # placeholder (Ticket 18)
+    OverviewPage.tsx   # backend connection check
+    GraphPage.tsx      # pipeline dependency graph
+    FindingsPage.tsx   # structural / SQL findings dashboard
+    StatisticsPage.tsx # per-job ETL statistics
+    ProfilePage.tsx    # table data-quality profile
   App.tsx              # routes
   main.tsx             # entry
 ```

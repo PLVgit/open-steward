@@ -170,3 +170,46 @@ def test_get_statistics_data_dir_path_traversal():
 def test_get_statistics_data_dir_not_found():
     r = client.get("/statistics/", params={"file": DEMO, "data_dir": "nonexistent_subdir"})
     assert r.status_code == 404
+
+
+# --- /profile ---
+
+def test_get_profile_returns_profile_and_findings():
+    r = client.get("/profile/", params={"table": "staging.orders", "data_dir": "."})
+    assert r.status_code == 200
+    data = r.json()
+    assert "profile" in data
+    assert "findings" in data
+    profile = data["profile"]
+    assert profile["table_name"] == "staging.orders"
+    assert profile["row_count"] == 18
+    assert profile["column_count"] == 5
+    columns = {c["column_name"] for c in profile["columns"]}
+    assert "coupon_code" in columns
+
+
+def test_get_profile_reports_high_null_rate():
+    r = client.get("/profile/", params={"table": "staging.orders", "data_dir": "."})
+    # coupon_code is ~83% null in the demo data → high_null_rate warning
+    types = {f["finding_type"] for f in r.json()["findings"]}
+    assert "high_null_rate" in types
+
+
+def test_get_profile_table_not_found():
+    r = client.get("/profile/", params={"table": "staging.missing", "data_dir": "."})
+    assert r.status_code == 404
+
+
+def test_get_profile_invalid_table_name():
+    r = client.get("/profile/", params={"table": "../etc", "data_dir": "."})
+    assert r.status_code == 400
+
+
+def test_get_profile_data_dir_path_traversal():
+    r = client.get("/profile/", params={"table": "staging.orders", "data_dir": "../samples"})
+    assert r.status_code == 400
+
+
+def test_get_profile_data_dir_not_found():
+    r = client.get("/profile/", params={"table": "staging.orders", "data_dir": "nope"})
+    assert r.status_code == 404

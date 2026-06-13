@@ -71,3 +71,8 @@ export interface TableProfile {
   column_count: number;
   columns: ColumnProfile[];
 }
+
+export interface ProfileResponse {
+  profile: TableProfile;
+  findings: ValidationFinding[];
+}

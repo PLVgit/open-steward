@@ -1,9 +1,15 @@
+import re
 from pathlib import Path
 
 from fastapi import HTTPException, Query
 
 SAMPLES_DIR = (Path(__file__).parent.parent.parent / "samples").resolve()
 DATA_ROOT = (Path(__file__).parent.parent.parent / "demo_data").resolve()
+
+# A table name is "schema.table" or "table" — word characters only. This blocks
+# path traversal via the table parameter, since the data source resolves the
+# table name to a file path under the data directory.
+_TABLE_NAME = re.compile(r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)?$")
 
 
 def get_csv_path(file: str = Query(..., description="Filename inside the samples/ directory")) -> Path:
@@ -24,3 +30,14 @@ def get_data_dir(
     if not resolved.is_dir():
         raise HTTPException(status_code=404, detail=f"Data directory not found: {data_dir}")
     return resolved
+
+
+def get_table_name(
+    table: str = Query(..., description="Table name to profile, e.g. staging.orders"),
+) -> str:
+    if not _TABLE_NAME.match(table):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid table name. Use 'schema.table' or 'table' with word characters only.",
+        )
+    return table

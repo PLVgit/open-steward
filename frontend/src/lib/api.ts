@@ -2,7 +2,7 @@ import type {
   GraphResponse,
   JobStatistics,
   PipelineJob,
-  TableProfile,
+  ProfileResponse,
   ValidationFinding,
 } from "./types";
 
@@ -52,9 +52,6 @@ export const api = {
   getStatistics: (file: string, dataDir = ".") =>
     request<JobStatistics[]>("/statistics/", { file, data_dir: dataDir }),
 
-  // NOTE: the backend has no /profile/ endpoint yet (profiling is CLI-only).
-  // This is a forward declaration for the Table Profile UI (Ticket 18); the
-  // endpoint will be added when that work lands.
   profileTable: (table: string, dataDir = ".") =>
-    request<TableProfile>("/profile/", { table, data_dir: dataDir }),
+    request<ProfileResponse>("/profile/", { table, data_dir: dataDir }),
 };
