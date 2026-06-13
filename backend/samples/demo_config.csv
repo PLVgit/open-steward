@@ -1,0 +1,5 @@
+config_key,pipeline_name,enabled,source_table,target_table,sql_query,execution_order,primary_key,load_type
+etl_001,Load Orders,true,raw.orders,staging.orders,"SELECT * FROM raw.orders",10,order_id,full
+etl_002,Load Customers,true,raw.customers,staging.customers,"SELECT customer_id, name, email, CAST(age AS VARCHAR) AS age_str FROM raw.customers",20,customer_id,full
+etl_003,Enrich Orders,true,staging.orders,mart.orders_enriched,"SELECT o.order_id, o.customer_id, o.amount, o.status FROM staging.orders o WHERE o.status = 'completed'",30,order_id,full
+etl_004,Daily Revenue,false,mart.orders_enriched,mart.daily_revenue,"SELECT order_date, SUM(amount) AS revenue FROM mart.orders_enriched GROUP BY order_date",40,,incremental

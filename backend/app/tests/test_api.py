@@ -83,3 +83,90 @@ def test_get_findings_severity_values():
     r = client.get("/findings/", params={"file": SAMPLE})
     severities = {f["severity"] for f in r.json()}
     assert severities <= {"error", "warning", "info"}
+
+
+# --- /statistics ---
+
+DEMO = "demo_config.csv"
+
+
+def test_get_statistics_returns_list():
+    r = client.get("/statistics/", params={"file": DEMO, "data_dir": "."})
+    assert r.status_code == 200
+    data = r.json()
+    assert isinstance(data, list)
+    # 3 enabled jobs in the demo config (etl_004 is disabled and excluded)
+    keys = [s["config_key"] for s in data]
+    assert keys == ["etl_001", "etl_002", "etl_003"]
+
+
+def test_get_statistics_fields_present():
+    r = client.get("/statistics/", params={"file": DEMO, "data_dir": "."})
+    first = r.json()[0]
+    for field in (
+        "config_key", "pipeline_name", "source_table", "target_table",
+        "source_count", "target_count", "lost_rows", "loss_pct",
+        "target_empty", "primary_key",
+        "primary_key_null_count", "primary_key_null_pct", "primary_key_duplicate_count",
+    ):
+        assert field in first
+
+
+def test_get_statistics_numeric_correctness():
+    r = client.get("/statistics/", params={"file": DEMO, "data_dir": "."})
+    by_key = {s["config_key"]: s for s in r.json()}
+    # raw.orders has 20 rows, staging.orders has 18 → 2 lost (10.0%)
+    orders = by_key["etl_001"]
+    assert orders["source_count"] == 20
+    assert orders["target_count"] == 18
+    assert orders["lost_rows"] == 2
+    assert orders["loss_pct"] == 10.0
+    assert orders["target_empty"] is False
+
+
+def test_get_statistics_missing_target_table_yields_none():
+    r = client.get("/statistics/", params={"file": DEMO, "data_dir": "."})
+    by_key = {s["config_key"]: s for s in r.json()}
+    # etl_003 targets mart.orders_enriched, which has no file in demo_data
+    enrich = by_key["etl_003"]
+    assert enrich["target_count"] is None
+    assert enrich["lost_rows"] is None
+    assert enrich["primary_key_null_count"] is None
+
+
+def test_get_statistics_excludes_disabled():
+    r = client.get("/statistics/", params={"file": DEMO, "data_dir": "."})
+    keys = [s["config_key"] for s in r.json()]
+    assert "etl_004" not in keys
+
+
+def test_get_statistics_default_data_dir():
+    # data_dir defaults to "." (the data root) when omitted
+    r = client.get("/statistics/", params={"file": DEMO})
+    assert r.status_code == 200
+    assert len(r.json()) == 3
+
+
+def test_get_statistics_config_not_found():
+    r = client.get("/statistics/", params={"file": "does_not_exist.csv", "data_dir": "."})
+    assert r.status_code == 404
+
+
+def test_get_statistics_config_bad_schema():
+    r = client.get("/statistics/", params={"file": BAD, "data_dir": "."})
+    assert r.status_code == 422
+
+
+def test_get_statistics_config_path_traversal():
+    r = client.get("/statistics/", params={"file": "../sample_config.csv", "data_dir": "."})
+    assert r.status_code == 400
+
+
+def test_get_statistics_data_dir_path_traversal():
+    r = client.get("/statistics/", params={"file": DEMO, "data_dir": "../samples"})
+    assert r.status_code == 400
+
+
+def test_get_statistics_data_dir_not_found():
+    r = client.get("/statistics/", params={"file": DEMO, "data_dir": "nonexistent_subdir"})
+    assert r.status_code == 404
