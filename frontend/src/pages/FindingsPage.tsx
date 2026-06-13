@@ -43,7 +43,9 @@ export function FindingsPage() {
     let cancelled = false;
     setState({ state: "loading" });
     api
-      .getFindings(configFile)
+      // Request reconciliation findings too, using the default demo data
+      // directory — keeps the dashboard consistent with the Statistics page.
+      .getFindings(configFile, ".")
       .then((findings) => {
         if (!cancelled) setState({ state: "ok", findings });
       })
@@ -70,7 +72,10 @@ export function FindingsPage() {
         <CardHeader>
           <CardTitle>Findings</CardTitle>
           <CardDescription>
-            Structural and SQL findings for <code className="font-mono">{configFile}</code>.
+            Structural, SQL and reconciliation findings for{" "}
+            <code className="font-mono">{configFile}</code>. Reconciliation findings
+            (row loss, duplicate/null keys) require local table snapshots in{" "}
+            <code className="font-mono">demo_data/</code>.
           </CardDescription>
         </CardHeader>
         <CardContent>

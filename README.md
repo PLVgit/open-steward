@@ -143,7 +143,8 @@ drives every page.
 - **Graph** — the pipeline dependency graph rendered with React Flow. Table nodes,
   edges labeled with the `config_key` that connects them, left-to-right execution
   layering, and a banner if a circular dependency is detected.
-- **Findings** — structural and SQL findings with error/warning/info summary
+- **Findings** — structural, SQL **and reconciliation** findings (the dashboard
+  requests them against the demo snapshots), with error/warning/info summary
   counts and a severity filter. Each finding shows its type, affected job/table,
   message, and recommendation.
 - **Statistics** — per-job ETL metrics (row counts, row loss, primary-key

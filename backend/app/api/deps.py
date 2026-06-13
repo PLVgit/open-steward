@@ -21,15 +21,32 @@ def get_csv_path(file: str = Query(..., description="Filename inside the samples
     return resolved
 
 
-def get_data_dir(
-    data_dir: str = Query(".", description="Directory of table snapshots, relative to demo_data/"),
-) -> Path:
+def _resolve_data_dir(data_dir: str) -> Path:
+    """Resolve a data_dir query value to a directory confined under DATA_ROOT."""
     resolved = (DATA_ROOT / data_dir).resolve()
     if not resolved.is_relative_to(DATA_ROOT):
         raise HTTPException(status_code=400, detail="Data directory is outside the allowed data root.")
     if not resolved.is_dir():
         raise HTTPException(status_code=404, detail=f"Data directory not found: {data_dir}")
     return resolved
+
+
+def get_data_dir(
+    data_dir: str = Query(".", description="Directory of table snapshots, relative to demo_data/"),
+) -> Path:
+    return _resolve_data_dir(data_dir)
+
+
+def get_optional_data_dir(
+    data_dir: str | None = Query(
+        None, description="Optional directory of table snapshots, relative to demo_data/"
+    ),
+) -> Path | None:
+    """Like get_data_dir, but optional. Returns None when the param is absent so
+    callers can keep their non-reconciliation behavior unchanged."""
+    if data_dir is None:
+        return None
+    return _resolve_data_dir(data_dir)
 
 
 def get_table_name(

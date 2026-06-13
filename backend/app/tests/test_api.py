@@ -85,6 +85,42 @@ def test_get_findings_severity_values():
     assert severities <= {"error", "warning", "info"}
 
 
+_RECONCILIATION_TYPES = {
+    "empty_target",
+    "row_count_drop",
+    "null_primary_key",
+    "duplicate_primary_key",
+}
+
+
+def test_get_findings_without_data_dir_excludes_reconciliation():
+    # Regression: omitting data_dir keeps the structural + SQL behavior unchanged.
+    r = client.get("/findings/", params={"file": "demo_config.csv"})
+    assert r.status_code == 200
+    types = {f["finding_type"] for f in r.json()}
+    assert types.isdisjoint(_RECONCILIATION_TYPES)
+
+
+def test_get_findings_with_data_dir_includes_reconciliation():
+    r = client.get("/findings/", params={"file": "demo_config.csv", "data_dir": "."})
+    assert r.status_code == 200
+    types = {f["finding_type"] for f in r.json()}
+    assert "row_count_drop" in types
+    assert "duplicate_primary_key" in types
+    # Structural/SQL findings are still present alongside reconciliation findings.
+    assert "select_star" in types
+
+
+def test_get_findings_data_dir_path_traversal():
+    r = client.get("/findings/", params={"file": "demo_config.csv", "data_dir": "../samples"})
+    assert r.status_code == 400
+
+
+def test_get_findings_data_dir_not_found():
+    r = client.get("/findings/", params={"file": "demo_config.csv", "data_dir": "nope"})
+    assert r.status_code == 404
+
+
 # --- /statistics ---
 
 DEMO = "demo_config.csv"

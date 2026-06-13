@@ -90,7 +90,7 @@ src/
   pages/
     OverviewPage.tsx   # backend connection check
     GraphPage.tsx      # pipeline dependency graph
-    FindingsPage.tsx   # structural / SQL findings dashboard
+    FindingsPage.tsx   # structural / SQL / reconciliation findings dashboard
     StatisticsPage.tsx # per-job ETL statistics
     ProfilePage.tsx    # table data-quality profile
   App.tsx              # routes

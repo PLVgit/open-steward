@@ -307,16 +307,17 @@ Config-driven endpoints accept `?file=<filename>`, where the file must be locate
 | GET | `/pipelines/` | `file` | List all jobs |
 | GET | `/pipelines/{config_key}` | `file` | Get one job by key |
 | GET | `/graph/` | `file` | Dependency graph and execution order |
-| GET | `/findings/` | `file` | Structural and SQL findings |
+| GET | `/findings/` | `file`, `data_dir` *(optional)* | Structural + SQL findings; reconciliation findings too when `data_dir` is given |
 | GET | `/statistics/` | `file`, `data_dir` | Per-job ETL statistics |
 | GET | `/profile/` | `table`, `data_dir` | Table profile + data-quality findings |
 
-> The REST `/findings/` endpoint returns structural + SQL findings only; reconciliation findings are available via the CLI `check --data-dir`. The `/statistics/` endpoint exposes the per-job reconciliation metrics for UI consumption.
+> Without `data_dir`, `/findings/` returns structural + SQL findings only (unchanged). Supplying `data_dir` adds reconciliation findings (row loss, duplicate/null primary keys), mirroring the CLI `check --data-dir`. Reconciliation requires local table snapshots under the data directory.
 
 Examples:
 
 ```bash
 curl "http://localhost:8000/findings/?file=sample_config.csv"
+curl "http://localhost:8000/findings/?file=demo_config.csv&data_dir=."   # + reconciliation findings
 curl "http://localhost:8000/statistics/?file=demo_config.csv&data_dir=."
 curl "http://localhost:8000/profile/?table=staging.orders&data_dir=."
 ```

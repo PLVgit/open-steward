@@ -46,8 +46,11 @@ export const api = {
   getGraph: (file: string) =>
     request<GraphResponse>("/graph/", { file }),
 
-  getFindings: (file: string) =>
-    request<ValidationFinding[]>("/findings/", { file }),
+  getFindings: (file: string, dataDir?: string) =>
+    request<ValidationFinding[]>(
+      "/findings/",
+      dataDir === undefined ? { file } : { file, data_dir: dataDir },
+    ),
 
   getStatistics: (file: string, dataDir = ".") =>
     request<JobStatistics[]>("/statistics/", { file, data_dir: dataDir }),

@@ -27,7 +27,7 @@ with the exact filenames listed.
 |---|---|---|
 | `overview.png` | Overview (`/`) | "Connected." status and the demo job list |
 | `graph.png` | Graph (`/graph`) | The pipeline dependency graph with labeled edges |
-| `findings.png` | Findings (`/findings`) | Summary counts, severity filter, and a few finding cards |
+| `findings.png` | Findings (`/findings`) | Summary counts, severity filter, and finding cards including reconciliation findings (e.g. `duplicate_primary_key`, `row_count_drop`) |
 | `statistics.png` | Statistics (`/statistics`) | Summary cards and per-job metric cards (with an `—` value visible) |
 | `profile.png` | Profile (`/profile`) | `staging.orders` table summary, column-stats table, and the high-null-rate finding |
 

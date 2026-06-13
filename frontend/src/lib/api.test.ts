@@ -36,6 +36,17 @@ describe("api client", () => {
     );
   });
 
+  it("includes data_dir on findings only when provided", async () => {
+    const fetchMock = mockFetchOnce([]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.getFindings("demo_config.csv", ".");
+    expect(fetchMock).toHaveBeenCalledWith("/api/findings/?file=demo_config.csv&data_dir=.");
+
+    await api.getFindings("demo_config.csv");
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/findings/?file=demo_config.csv");
+  });
+
   it("throws ApiError with the backend detail on non-OK responses", async () => {
     const fetchMock = mockFetchOnce({ detail: "File not found: x.csv" }, false, 404);
     vi.stubGlobal("fetch", fetchMock);
