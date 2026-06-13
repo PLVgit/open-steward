@@ -12,3 +12,20 @@ class DataSource(Protocol):
     def get_empty_string_count(self, table_name: str, column: str) -> int: ...
     def get_duplicate_key_count(self, table_name: str, primary_key: str) -> int: ...
     def get_filtered_row_count(self, table_name: str, where_clause: str) -> int: ...
+    def get_unmatched_left_count(
+        self,
+        left_table: str,
+        left_key: str,
+        right_table: str,
+        right_key: str,
+        where_clause: str | None = None,
+    ) -> int: ...
+    def get_join_output_row_count(
+        self,
+        left_table: str,
+        left_key: str,
+        right_table: str,
+        right_key: str,
+        join_type: str,
+        where_clause: str | None = None,
+    ) -> int: ...

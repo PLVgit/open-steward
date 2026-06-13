@@ -102,6 +102,57 @@ class LocalFileDataSource:
             f"SELECT COUNT(*) FROM {self._from_clause(path)} WHERE {where_clause}"
         ).fetchone()[0]
 
+    def _left_subquery(self, left_path: Path, where_clause: str | None) -> str:
+        fc = self._from_clause(left_path)
+        if where_clause:
+            return f"(SELECT * FROM {fc} WHERE {where_clause})"
+        return f"(SELECT * FROM {fc})"
+
+    def get_unmatched_left_count(
+        self,
+        left_table: str,
+        left_key: str,
+        right_table: str,
+        right_key: str,
+        where_clause: str | None = None,
+    ) -> int:
+        """Count left rows (after an optional WHERE) with no matching right key.
+        A scalar anti-join count — no join output is materialized."""
+        left_path = self._require_path(left_table)
+        right_path = self._require_path(right_table)
+        lkey = self._require_column(left_path, left_key)
+        rkey = self._require_column(right_path, right_key)
+        left_sub = self._left_subquery(left_path, where_clause)
+        right_fc = self._from_clause(right_path)
+        return self._conn.execute(
+            f"SELECT COUNT(*) FROM {left_sub} l "
+            f"WHERE NOT EXISTS (SELECT 1 FROM {right_fc} r WHERE r.{rkey} = l.{lkey})"
+        ).fetchone()[0]
+
+    def get_join_output_row_count(
+        self,
+        left_table: str,
+        left_key: str,
+        right_table: str,
+        right_key: str,
+        join_type: str,
+        where_clause: str | None = None,
+    ) -> int:
+        """Count the rows a simple INNER/LEFT join would produce (after an
+        optional left WHERE). Returns only the scalar count — no rows are
+        returned and the join result is never materialized for the caller."""
+        left_path = self._require_path(left_table)
+        right_path = self._require_path(right_table)
+        lkey = self._require_column(left_path, left_key)
+        rkey = self._require_column(right_path, right_key)
+        join_kw = "LEFT JOIN" if join_type.upper() == "LEFT" else "JOIN"
+        left_sub = self._left_subquery(left_path, where_clause)
+        right_fc = self._from_clause(right_path)
+        return self._conn.execute(
+            f"SELECT COUNT(*) FROM {left_sub} l "
+            f"{join_kw} {right_fc} r ON l.{lkey} = r.{rkey}"
+        ).fetchone()[0]
+
     def get_duplicate_key_count(self, table_name: str, primary_key: str) -> int:
         path = self._require_path(table_name)
         col = self._require_column(path, primary_key)

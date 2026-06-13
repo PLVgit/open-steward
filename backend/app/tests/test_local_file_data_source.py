@@ -139,6 +139,46 @@ def test_get_filtered_row_count_in_clause(tmp_path):
     assert ds.get_filtered_row_count("raw.orders", "status IN ('completed', 'pending')") == 2
 
 
+# ── cross-table join aggregates ─────────────────────────────────────────────────
+
+def _join_fixtures(tmp_path):
+    # left cid: 1,1,2,9 ; right id: 1,1,2  (right key 1 is duplicated)
+    _write_csv(tmp_path / "raw" / "orders.csv", "cid\n1\n1\n2\n9\n")
+    _write_csv(tmp_path / "raw" / "customers.csv", "id\n1\n1\n2\n")
+    return LocalFileDataSource(tmp_path)
+
+
+def test_get_join_output_row_count_inner(tmp_path):
+    ds = _join_fixtures(tmp_path)
+    # cid1 (x2 left) * id1 (x2) = 4 ; cid2 * id2 = 1 ; cid9 = 0  -> 5
+    assert ds.get_join_output_row_count("raw.orders", "cid", "raw.customers", "id", "INNER") == 5
+
+
+def test_get_join_output_row_count_left(tmp_path):
+    ds = _join_fixtures(tmp_path)
+    # INNER 5, plus the unmatched cid9 kept once -> 6
+    assert ds.get_join_output_row_count("raw.orders", "cid", "raw.customers", "id", "LEFT") == 6
+
+
+def test_get_unmatched_left_count(tmp_path):
+    ds = _join_fixtures(tmp_path)
+    # only cid9 has no matching right key
+    assert ds.get_unmatched_left_count("raw.orders", "cid", "raw.customers", "id") == 1
+
+
+def test_get_join_output_row_count_with_where(tmp_path):
+    _write_csv(tmp_path / "raw" / "orders.csv", "cid,flag\n1,y\n1,n\n2,y\n9,y\n")
+    _write_csv(tmp_path / "raw" / "customers.csv", "id\n1\n1\n2\n")
+    ds = LocalFileDataSource(tmp_path)
+    # WHERE flag='y' keeps cid 1,2,9 ; INNER: cid1*id1(x2)=2, cid2=1, cid9=0 -> 3
+    assert (
+        ds.get_join_output_row_count(
+            "raw.orders", "cid", "raw.customers", "id", "INNER", where_clause="flag = 'y'"
+        )
+        == 3
+    )
+
+
 # ── error handling ────────────────────────────────────────────────────────────
 
 def test_missing_table_raises_file_not_found(tmp_path):

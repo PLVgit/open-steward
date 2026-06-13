@@ -2,6 +2,7 @@ from app.adapters.data_source import DataSource
 from app.models.finding import ValidationFinding
 from app.models.pipeline_job import PipelineJob
 from app.services.filter_analyzer import extract_simple_filter
+from app.services.join_statistics import analyze_job_join
 
 # TODO — row loss tolerance:
 # Future versions should support configurable thresholds per job:
@@ -18,18 +19,20 @@ from app.services.filter_analyzer import extract_simple_filter
 # Anything not provably simple (joins, subqueries, aggregates, etc.) falls back
 # to row_count_drop.
 
-# TODO — Ticket 22, join-aware advisory statistics:
-# Joins legitimately change row counts (unmatched rows, fan-out, duplicate keys),
-# so they are surfaced as advisory statistics, not hard errors. Future work:
-#   - join_match_rate
-#   - unmatched_left_rows
-#   - unmatched_right_rows (where meaningful)
-#   - possible_many_to_many_join
-#   - possible_row_multiplication
-#   - right-side duplicate join keys
-#   - row count changes caused by JOINs after filters
-# This is also where row surplus (target > expected_after_filter, i.e.
-# unexpected_row_surplus_after_filter / row multiplication) should be handled.
+# Join-aware advisory statistics (implemented in join_statistics):
+# For simple two-table INNER/LEFT joins (optionally after a simple left WHERE),
+# we explain the staged row count
+#   source_count -> after_filter_count -> expected_after_join_count -> target_count
+# and emit row_count_change_explained_by_transformations / unexpected_row_loss_after_join
+# / unexpected_row_surplus_after_join, plus advisory join_unmatched_rows,
+# join_key_nulls, possible_row_multiplication and possible_many_to_many_join.
+#
+# TODO — remaining transformation-aware work:
+#   - RIGHT / FULL joins, NATURAL / USING joins
+#   - composite (multi-column) join keys
+#   - more than one join per query
+#   - WHERE predicates that reference the right table (post-join filtering)
+#   - unmatched_right_rows where meaningful
 
 # TODO — ETL-level statistics for UI:
 # The per-job JobStatistics layer reports raw source/target/lost_rows numbers.
@@ -71,8 +74,8 @@ def _reconcile_job(job: PipelineJob, ds: DataSource) -> list[ValidationFinding]:
             recommendation="Verify the ETL job ran successfully and loaded data into the target table.",
         ))
 
-    if job.load_type == "full" and 0 < target_count < source_count:
-        findings.extend(_row_drop_findings(job, ds, source_count, target_count))
+    if job.load_type == "full" and target_count > 0:
+        findings.extend(_row_change_findings(job, ds, source_count, target_count))
 
     if job.primary_key:
         null_count = ds.get_null_count(job.target_table, job.primary_key)
@@ -117,28 +120,34 @@ def _reconcile_job(job: PipelineJob, ds: DataSource) -> list[ValidationFinding]:
     return findings
 
 
-def _row_drop_findings(
+def _row_change_findings(
     job: PipelineJob,
     ds: DataSource,
     source_count: int,
     target_count: int,
 ) -> list[ValidationFinding]:
-    """Explain a full-load row drop. If the job has a simple single-source WHERE
-    filter, compare target_count to the filtered source count; otherwise fall
-    back to a plain row_count_drop warning."""
+    """Explain a full-load row-count change, transformation-aware where possible:
+    a simple two-table join (staged) first, then a simple single-source WHERE
+    filter, otherwise fall back to a plain row_count_drop when rows were lost."""
+    # 1) Simple two-table join (optionally after a simple left WHERE).
+    join_findings = analyze_job_join(job, ds, source_count, target_count)
+    if join_findings is not None:
+        return join_findings
+
+    # 2) Simple single-source WHERE filter (Ticket 21).
     where_clause = extract_simple_filter(job.sql_query, job.source_table)
-    expected: int | None = None
     if where_clause is not None:
         try:
             expected = ds.get_filtered_row_count(job.source_table, where_clause)
         except Exception:
-            # Predicate could not be evaluated against the source — treat as
-            # unsupported and fall back to the existing behavior.
             expected = None
+        if expected is not None:
+            return _filter_aware_findings(job, source_count, target_count, expected)
 
-    if expected is None:
+    # 3) No analyzable transformation: flag an unexplained drop only.
+    if target_count < source_count:
         return [_row_count_drop(job, source_count, target_count)]
-    return _filter_aware_findings(job, source_count, target_count, expected)
+    return []
 
 
 def _row_count_drop(job: PipelineJob, source_count: int, target_count: int) -> ValidationFinding:
@@ -172,6 +181,9 @@ def _filter_aware_findings(
     filtered_out_pct = round(filtered_out_rows / source_count * 100, 1) if source_count > 0 else 0.0
 
     if target_count == expected:
+        if filtered_out_rows == 0:
+            # The filter removed nothing and the count matches — nothing to explain.
+            return []
         return [ValidationFinding(
             finding_type="row_loss_explained_by_filter",
             severity="info",

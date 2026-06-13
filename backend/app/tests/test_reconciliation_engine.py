@@ -310,7 +310,9 @@ def test_no_filter_falls_back_to_row_count_drop(tmp_path):
     assert "unexpected_row_loss" not in types
 
 
-def test_join_sql_falls_back_to_row_count_drop(tmp_path):
+def test_join_sql_without_right_snapshot_falls_back_to_row_count_drop(tmp_path):
+    # The join's right table has no snapshot, so join analysis can't run and the
+    # job falls back to the plain row_count_drop (target < source).
     _csv(tmp_path, "raw.orders", SRC_STATUS)
     _csv(tmp_path, "staging.orders", TGT_3_COMPLETED)
     join_sql = (
@@ -322,4 +324,26 @@ def test_join_sql_falls_back_to_row_count_drop(tmp_path):
     types = [f.finding_type for f in findings]
     assert "row_count_drop" in types
     assert "unexpected_row_loss" not in types
-    assert "row_loss_explained_by_filter" not in types
+
+
+# ── join-aware staged reconciliation through reconcile_jobs (Ticket 22) ──────────
+
+def test_join_job_surfaces_staged_finding(tmp_path):
+    # raw.orders (3) LEFT JOIN raw.customers; right key 1 duplicated -> 4 rows.
+    _csv(tmp_path, "raw.orders", "cid\n1\n2\n3\n")
+    _csv(tmp_path, "raw.customers", "id\n1\n1\n2\n3\n")
+    _csv(tmp_path, "mart.out", "cid,id\n1,1\n1,1\n2,2\n3,3\n")  # 4 rows = expected
+    job = PipelineJob(
+        config_key="etl_join",
+        pipeline_name="Join Job",
+        enabled=True,
+        source_table="raw.orders",
+        target_table="mart.out",
+        primary_key=None,
+        load_type="full",
+        sql_query="SELECT * FROM raw.orders o LEFT JOIN raw.customers c ON o.cid = c.id",
+    )
+    ds = LocalFileDataSource(tmp_path)
+    types = [f.finding_type for f in reconcile_jobs([job], ds)]
+    assert "row_count_change_explained_by_transformations" in types
+    assert "possible_row_multiplication" in types

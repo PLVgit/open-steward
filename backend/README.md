@@ -260,7 +260,27 @@ Require local table snapshots (CSV or Parquet). Only enabled jobs are reconciled
 | `null_primary_key` | error | Primary key column contains null values in the target — includes `null_count`, `null_pct` |
 | `duplicate_primary_key` | error | Primary key is not unique in the target — includes `duplicate_key_count` |
 
-**Filter-aware reconciliation.** For a full-load job whose SQL is a *simple single-source `WHERE` filter*, Open Steward counts how many source rows pass the filter (`expected_after_filter_count`) and compares it to the target row count: an exact match yields the `row_loss_explained_by_filter` info finding (no false-positive `row_count_drop`), while a target below the expected count yields `unexpected_row_loss`. Anything not provably simple — **any join**, multiple source tables, CTEs, subqueries, `UNION`, `GROUP BY`/`HAVING`/`DISTINCT`/`LIMIT`, aggregate/window functions, or non-trivial `WHERE` expressions — falls back to plain `row_count_drop`. (Joins legitimately change row counts and are deferred to future join-aware advisory statistics.)
+**Filter-aware reconciliation.** For a full-load job whose SQL is a *simple single-source `WHERE` filter*, Open Steward counts how many source rows pass the filter (`expected_after_filter_count`) and compares it to the target row count: an exact match yields the `row_loss_explained_by_filter` info finding (no false-positive `row_count_drop`), while a target below the expected count yields `unexpected_row_loss`. Anything not provably simple — multiple source tables, CTEs, subqueries, `UNION`, `GROUP BY`/`HAVING`/`DISTINCT`/`LIMIT`, aggregate/window functions, or non-trivial `WHERE` expressions — falls back to plain `row_count_drop`.
+
+### Join-aware advisory statistics
+
+For a full-load job whose SQL is a *simple two-table `INNER`/`LEFT` join* with a single equality `ON` (and an optional left-only `WHERE`), Open Steward explains the row count as a staged chain — all computed as **scalar aggregate counts; the join result is never materialized**:
+
+```
+source_count → after_filter_count → expected_after_join_count → target_count
+```
+
+| Finding | Severity | What it means |
+|---------|----------|---------------|
+| `row_count_change_explained_by_transformations` | info | `target_count` equals `expected_after_join_count` — the change is fully explained by the filter and join |
+| `unexpected_row_loss_after_join` | warning | Target has fewer rows than the filter+join explain — includes `unexpected_loss_rows` |
+| `unexpected_row_surplus_after_join` | warning | Target has more rows than the filter+join explain — includes `unexpected_surplus_rows` |
+| `join_unmatched_rows` | warning (INNER) / info (LEFT) | Some left rows have no matching right key (dropped by INNER, kept with NULLs by LEFT) — includes `join_match_rate` |
+| `join_key_nulls` | info | A join key contains nulls, which never match |
+| `possible_row_multiplication` | warning | The right join key is not unique, so matched left rows can fan out |
+| `possible_many_to_many_join` | warning | Both join keys have duplicate values — a many-to-many join can multiply rows |
+
+These are **advisory** — they describe structural row-count risks and never assert the result is wrong. Anything outside the supported shape (more than one join; `RIGHT`/`FULL`/`CROSS`/`NATURAL`/`USING`; composite or non-equality `ON`; ambiguous unqualified keys; a `WHERE` referencing the right table; CTEs/subqueries/aggregates/etc.) falls back safely with no join findings.
 
 ### Profiling findings
 
@@ -404,14 +424,13 @@ python -m pytest -v
 - React + TypeScript UI with an interactive pipeline graph (React Flow), findings dashboard, ETL statistics panel and table profile page.
 - ETL-level statistics, exposed via the `stats` CLI command and the `/statistics/` endpoint.
 - Filter-aware reconciliation: full-load row drops explained by a simple `WHERE` filter are reported as expected (`row_loss_explained_by_filter`) instead of false-positive `row_count_drop`; shortfalls below the filtered count are flagged as `unexpected_row_loss`.
+- Join-aware advisory statistics: simple two-table INNER/LEFT joins are explained as a staged `source → after_filter → expected_after_join → target` chain, with advisory findings for unmatched rows, null keys and possible row multiplication / many-to-many fan-out.
 
-**Next**
-- Join-aware advisory statistics (`join_match_rate`, unmatched rows, possible row multiplication, row surplus / multiplication) — surfaced as advisory, not hard errors.
-
-**Later**
+**Later** (not started)
 - dbt adapter (read model definitions as pipeline jobs).
 - Azure Data Factory metadata/log adapter.
 - Read-only live database connectors (e.g. Postgres, Snowflake).
+- More transformation shapes: RIGHT/FULL/NATURAL joins, composite join keys, multiple joins, post-join WHERE.
 - Row-loss tolerance thresholds per job (`row_loss_tolerance_pct`).
 - Distribution and histogram profiling (e.g. via Polars).
 - `--output json` flag on all CLI commands; suggested data-quality rules from profile results.

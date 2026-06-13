@@ -163,9 +163,13 @@ drives every page.
 - Analyze each job's SQL with sqlglot: `SELECT *`, `CAST`/`TRY_CAST`,
   `CROSS JOIN`, and full-load-without-filter risks.
 - Reconcile source vs. target snapshots: row-count drop, empty target, null and
-  duplicate primary keys — with quantitative messages. **Filter-aware:** a row
-  drop explained by a simple `WHERE` filter is reported as expected rather than
-  flagged as loss.
+  duplicate primary keys — with quantitative messages.
+- **Transformation-aware reconciliation:** explain row-count changes step by step
+  for simple SQL. A `WHERE` filter (`source → after_filter`) and a simple two-table
+  INNER/LEFT join (`after_filter → expected_after_join`) are modeled as scalar
+  counts, so an expected drop or join fan-out is reported as *explained* rather
+  than flagged — with advisory findings for unmatched rows and possible row
+  multiplication.
 - Profile target tables per column (null / empty-string / distinct rates) and
   flag all-null, high-null-rate, constant-column, and high-empty-string columns.
 - Expose all of the above over a REST API **and** a CLI, plus a five-page React UI.
@@ -195,19 +199,20 @@ Open Steward is an honest MVP. It does **not** (yet) do the following:
 
 ## Roadmap
 
-**Next**
-- **Join-aware advisory statistics** — `join_match_rate`, unmatched rows, and
-  possible row multiplication, surfaced as advisory (not hard errors). This is
-  also where row *surplus* (target with more rows than a filter explains) will be
-  handled.
-
 **Shipped recently**
 - **Filter-aware reconciliation** — a full-load row drop explained by a simple
   single-source `WHERE` filter is reported as expected (`row_loss_explained_by_filter`)
-  instead of a false-positive `row_count_drop`; a shortfall below the filtered
-  count is flagged as `unexpected_row_loss`.
+  instead of a false-positive `row_count_drop`; a shortfall is flagged as
+  `unexpected_row_loss`.
+- **Join-aware advisory statistics** — simple two-table INNER/LEFT joins are
+  explained as a staged `source → after_filter → expected_after_join → target`
+  chain (`row_count_change_explained_by_transformations`, `unexpected_row_loss_after_join`,
+  `unexpected_row_surplus_after_join`), plus advisory `join_unmatched_rows`,
+  `join_key_nulls`, `possible_row_multiplication` and `possible_many_to_many_join`.
 
-**Later**
+**Possible future directions** (not started)
+- More transformation shapes: RIGHT/FULL/NATURAL joins, composite join keys,
+  multiple joins, post-join `WHERE`.
 - dbt adapter (read model definitions as pipeline jobs).
 - Azure Data Factory metadata/log adapter.
 - Read-only live database connectors (e.g. Postgres, Snowflake).
