@@ -5,9 +5,11 @@ import typer
 from app.adapters.csv_adapter import CsvAdapter
 from app.adapters.local_file_data_source import LocalFileDataSource
 from app.models.finding import ValidationFinding
+from app.models.job_statistics import JobStatistics
 from app.models.pipeline_job import PipelineJob
 from app.models.table_profile import TableProfile
 from app.services.dq_profiler import detect_profile_findings, profile_table
+from app.services.etl_statistics import compute_job_statistics
 from app.services.finding_detector import detect_findings
 from app.services.graph_builder import build_graph, detect_cycles, get_execution_order
 from app.services.reconciliation_engine import reconcile_jobs
@@ -211,6 +213,52 @@ def _render_profile_text(tbl: TableProfile, findings: list[ValidationFinding]) -
     typer.echo("─" * 48)
     typer.echo(f"{len(errors)} errors · {len(warnings)} warnings · {len(infos)} info")
     return 1 if errors else 0
+
+
+def _render_stats_text(stats: list[JobStatistics], file: Path) -> None:
+    _header(file, f"{len(stats)} enabled jobs")
+
+    if not stats:
+        typer.echo("No enabled jobs to report.")
+        return
+
+    def _num(value: int | None) -> str:
+        return "—" if value is None else str(value)
+
+    def _pct(value: float | None) -> str:
+        return "—" if value is None else f"{value}%"
+
+    w_key = max(len("KEY"), *(len(s.config_key) for s in stats)) + 2
+    w_tgt = max(len("TARGET"), *(len(s.target_table) for s in stats)) + 2
+
+    header = (
+        f"{'KEY':<{w_key}}{'TARGET':<{w_tgt}}"
+        f"{'SOURCE':<9}{'TARGET#':<9}{'LOST':<8}{'LOSS%':<9}"
+        f"{'PK NULLS':<10}{'PK DUPS':<9}"
+    )
+    typer.echo(typer.style(header, bold=True))
+    for s in stats:
+        typer.echo(
+            f"{s.config_key:<{w_key}}{s.target_table:<{w_tgt}}"
+            f"{_num(s.source_count):<9}{_num(s.target_count):<9}"
+            f"{_num(s.lost_rows):<8}{_pct(s.loss_pct):<9}"
+            f"{_num(s.primary_key_null_count):<10}{_num(s.primary_key_duplicate_count):<9}"
+        )
+    typer.echo()
+    typer.echo("Statistics describe what happened numerically; run 'check' for findings.")
+
+
+@app.command()
+def stats(
+    file: Path = typer.Option(..., "--file", "-f", help="Path to ETL config CSV"),
+    data_dir: Path = typer.Option(
+        ..., "--data-dir", "-d", help="Directory of local table snapshots.",
+    ),
+) -> None:
+    """Show per-job ETL statistics (row counts, loss, primary-key metrics)."""
+    jobs = _load(file)
+    stats = compute_job_statistics(jobs, LocalFileDataSource(data_dir))
+    _render_stats_text(stats, file)
 
 
 @app.command()

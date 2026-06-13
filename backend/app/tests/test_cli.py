@@ -134,6 +134,79 @@ def test_check_with_data_dir_exits_1_on_error(tmp_path):
     assert result.exit_code == 1
 
 
+# ── stats ──────────────────────────────────────────────────────────────────────
+
+def _stats_setup(tmp_path):
+    config = tmp_path / "config.csv"
+    config.write_text(
+        "config_key,pipeline_name,enabled,source_table,target_table,primary_key,load_type\n"
+        "etl_001,Load Orders,true,raw.orders,staging.orders,id,full\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "data" / "raw").mkdir(parents=True)
+    (tmp_path / "data" / "staging").mkdir(parents=True)
+    (tmp_path / "data" / "raw" / "orders.csv").write_text(
+        "id,name\n1,Alice\n2,Bob\n3,Charlie\n4,Dave\n5,Eve\n", encoding="utf-8"
+    )
+    (tmp_path / "data" / "staging" / "orders.csv").write_text(
+        "id,name\n1,Alice\n2,Bob\n3,Charlie\n", encoding="utf-8"
+    )
+    return config, tmp_path / "data"
+
+
+def test_stats_shows_counts_and_loss(tmp_path):
+    config, data = _stats_setup(tmp_path)
+    result = runner.invoke(app, ["stats", "--file", str(config), "--data-dir", str(data)])
+    assert result.exit_code == 0
+    assert "etl_001" in result.output
+    assert "staging.orders" in result.output
+    # 5 source, 3 target → 2 lost, 40.0%
+    assert "40.0%" in result.output
+
+
+def test_stats_shows_headers(tmp_path):
+    config, data = _stats_setup(tmp_path)
+    result = runner.invoke(app, ["stats", "--file", str(config), "--data-dir", str(data)])
+    assert "SOURCE" in result.output
+    assert "LOST" in result.output
+    assert "PK NULLS" in result.output
+
+
+def test_stats_missing_table_shows_dash(tmp_path):
+    config = tmp_path / "config.csv"
+    config.write_text(
+        "config_key,pipeline_name,enabled,source_table,target_table,primary_key,load_type\n"
+        "etl_001,Load Orders,true,raw.orders,staging.orders,id,full\n",
+        encoding="utf-8",
+    )
+    data = tmp_path / "data"
+    (data / "raw").mkdir(parents=True)
+    (data / "raw" / "orders.csv").write_text("id,name\n1,Alice\n", encoding="utf-8")
+    result = runner.invoke(app, ["stats", "--file", str(config), "--data-dir", str(data)])
+    assert result.exit_code == 0
+    # target table missing → dash placeholders rendered
+    assert "—" in result.output
+
+
+def test_stats_excludes_disabled(tmp_path):
+    config = tmp_path / "config.csv"
+    config.write_text(
+        "config_key,pipeline_name,enabled,source_table,target_table,primary_key,load_type\n"
+        "etl_001,Load Orders,true,raw.orders,staging.orders,id,full\n"
+        "etl_002,Disabled Job,false,raw.x,staging.x,id,full\n",
+        encoding="utf-8",
+    )
+    data = tmp_path / "data"
+    (data / "raw").mkdir(parents=True)
+    (data / "staging").mkdir(parents=True)
+    (data / "raw" / "orders.csv").write_text("id,name\n1,Alice\n", encoding="utf-8")
+    (data / "staging" / "orders.csv").write_text("id,name\n1,Alice\n", encoding="utf-8")
+    result = runner.invoke(app, ["stats", "--file", str(config), "--data-dir", str(data)])
+    assert result.exit_code == 0
+    assert "etl_001" in result.output
+    assert "etl_002" not in result.output
+
+
 # ── profile ────────────────────────────────────────────────────────────────────
 
 def test_profile_command_shows_column_names(tmp_path):
