@@ -29,10 +29,11 @@ describe("App shell", () => {
     }
   });
 
-  it("renders a placeholder for the Graph route", () => {
-    renderAt("/graph");
-    expect(screen.getByText("Pipeline Graph")).toBeInTheDocument();
-    expect(screen.getByText(/implemented in Ticket 15/)).toBeInTheDocument();
+  it("renders a placeholder for a not-yet-built route", () => {
+    renderAt("/findings");
+    expect(
+      screen.getByText(/This view is a placeholder. It will be implemented in Ticket 16/),
+    ).toBeInTheDocument();
   });
 
   it("shows the job count on the Overview page when the backend responds", async () => {

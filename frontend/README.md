@@ -1,10 +1,15 @@
 # Open Steward — Frontend
 
-React + TypeScript + Vite skeleton for the Open Steward UI. Styled with Tailwind
-and shadcn/ui primitives. This is the **skeleton only**: the app shell,
-navigation, routing, a typed API client, and an Overview page that verifies the
-backend connection. The feature views (Graph, Findings, Statistics, Profile) are
-placeholders implemented in later tickets.
+React + TypeScript + Vite frontend for the Open Steward UI. Styled with Tailwind
+and shadcn/ui primitives. Includes the app shell, navigation, routing, a typed
+API client, an Overview page that verifies the backend connection, and the
+**Pipeline Graph** page. The remaining feature views (Findings, Statistics,
+Profile) are placeholders implemented in later tickets.
+
+The graph is rendered with **[`@xyflow/react`](https://reactflow.dev)** (React
+Flow v12 — the current, actively maintained package; the older `reactflow` v11
+is in maintenance mode). Node positions come from a small custom layered layout
+(`src/lib/graphLayout.ts`), so no graph-layout dependency (e.g. dagre) is needed.
 
 ## Prerequisites
 
@@ -63,17 +68,20 @@ The config file read by the API is selected in the header (defaults to
 src/
   components/
     ui/                # shadcn primitives (button, card)
+    graph/
+      PipelineFlow.tsx # React Flow wrapper
     AppShell.tsx       # sidebar nav + layout
     PlaceholderPage.tsx
   context/
     ConfigContext.tsx  # selected config file (shared by all pages)
   lib/
     api.ts             # typed API client (/api/*)
+    graphLayout.ts     # pure GraphResponse -> React Flow nodes/edges
     types.ts           # TypeScript mirrors of backend models
     utils.ts           # cn() class helper
   pages/
     OverviewPage.tsx   # live: verifies backend connection
-    GraphPage.tsx      # placeholder (Ticket 15)
+    GraphPage.tsx      # live: pipeline dependency graph
     FindingsPage.tsx   # placeholder (Ticket 16)
     StatisticsPage.tsx # placeholder (Ticket 17)
     ProfilePage.tsx    # placeholder (Ticket 18)
