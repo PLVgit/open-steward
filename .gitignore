@@ -27,6 +27,14 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/node_modules/
+*.local
+.vite/
+*.tsbuildinfo
+
 # Secrets
 .env
 *.env
