@@ -30,9 +30,9 @@ describe("App shell", () => {
   });
 
   it("renders a placeholder for a not-yet-built route", () => {
-    renderAt("/statistics");
+    renderAt("/profile");
     expect(
-      screen.getByText(/This view is a placeholder. It will be implemented in Ticket 17/),
+      screen.getByText(/This view is a placeholder. It will be implemented in Ticket 18/),
     ).toBeInTheDocument();
   });
 
