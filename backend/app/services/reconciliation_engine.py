@@ -1,36 +1,41 @@
 from app.adapters.data_source import DataSource
 from app.models.finding import ValidationFinding
 from app.models.pipeline_job import PipelineJob
+from app.services.filter_analyzer import extract_simple_filter
 
 # TODO — row loss tolerance:
 # Future versions should support configurable thresholds per job:
 # row_loss_tolerance_pct, allowed_row_loss, expected_filter_loss.
-# Currently any target < source on a full-load job is flagged.
+# Currently any unexplained target < source on a full-load job is flagged.
 
-# TODO — filter-aware reconciliation:
-# When a job's sql_query contains a WHERE clause, row loss may be explained by the filter.
-# Future reconciliation should compute:
-#   source_count           — rows before the filter
-#   expected_after_filter  — rows that pass the filter (requires running filter against source data)
-#   target_count           — actual rows in target
-#   filtered_out_rows      = source_count - expected_after_filter
-#   filtered_out_pct
-#   unexpected_loss_rows   = expected_after_filter - target_count
-#   unexpected_loss_pct
-# If unexpected_loss_rows == 0, row loss is fully explained and row_count_drop should not fire.
+# Filter-aware reconciliation (implemented):
+# For full-load jobs whose SQL is a simple single-source WHERE filter
+# (see filter_analyzer.extract_simple_filter), we compute expected_after_filter
+# and compare it to target_count:
+#   - target == expected  -> info  row_loss_explained_by_filter
+#   - target <  expected  -> warn  unexpected_row_loss
+#   - target >  expected  -> no finding (row surplus is out of scope; see below)
+# Anything not provably simple (joins, subqueries, aggregates, etc.) falls back
+# to row_count_drop.
 
-# TODO — join-aware advisory statistics:
-# Row loss through joins is legitimate but worth surfacing as advisory, not hard errors.
-# Future statistics: join_match_rate, unmatched_left_rows, unmatched_right_rows,
-# possible_many_to_many_join, possible_row_multiplication, join_key_null_rate.
+# TODO — Ticket 22, join-aware advisory statistics:
+# Joins legitimately change row counts (unmatched rows, fan-out, duplicate keys),
+# so they are surfaced as advisory statistics, not hard errors. Future work:
+#   - join_match_rate
+#   - unmatched_left_rows
+#   - unmatched_right_rows (where meaningful)
+#   - possible_many_to_many_join
+#   - possible_row_multiplication
+#   - right-side duplicate join keys
+#   - row count changes caused by JOINs after filters
+# This is also where row surplus (target > expected_after_filter, i.e.
+# unexpected_row_surplus_after_filter / row multiplication) should be handled.
 
 # TODO — ETL-level statistics for UI:
-# Future UI should display a per-ETL reconciliation panel containing:
-#   source_count, target_count, lost_rows, loss_pct, target_empty,
-#   primary_key_null_count, primary_key_null_pct, primary_key_duplicate_count.
-# Later additions: expected_after_filter_count, filtered_out_rows, filtered_out_pct,
-#   unexpected_loss_rows, unexpected_loss_pct,
-#   join_match_rate, join_unmatched_rows, possible_row_multiplication.
+# The per-job JobStatistics layer reports raw source/target/lost_rows numbers.
+# It could later also expose filter-aware fields (expected_after_filter_count,
+# filtered_out_rows/pct, unexpected_loss_rows/pct) and the join-aware advisory
+# statistics above for richer UI panels.
 
 
 def reconcile_jobs(
@@ -67,24 +72,7 @@ def _reconcile_job(job: PipelineJob, ds: DataSource) -> list[ValidationFinding]:
         ))
 
     if job.load_type == "full" and 0 < target_count < source_count:
-        lost_rows = source_count - target_count
-        # Guard against division by zero; source_count > 0 is guaranteed by the condition above.
-        loss_pct = round(lost_rows / source_count * 100, 1) if source_count > 0 else 0.0
-        findings.append(ValidationFinding(
-            finding_type="row_count_drop",
-            severity="warning",
-            message=(
-                f"Full-load target has fewer rows than source: "
-                f"source_count={source_count}, target_count={target_count}, "
-                f"lost_rows={lost_rows}, loss_pct={loss_pct}%."
-            ),
-            affected_job=job.config_key,
-            affected_table=job.target_table,
-            recommendation=(
-                "Check the ETL transformation for unintended filtering or data loss. "
-                "Consider adding row count assertions to the pipeline."
-            ),
-        ))
+        findings.extend(_row_drop_findings(job, ds, source_count, target_count))
 
     if job.primary_key:
         null_count = ds.get_null_count(job.target_table, job.primary_key)
@@ -127,3 +115,104 @@ def _reconcile_job(job: PipelineJob, ds: DataSource) -> list[ValidationFinding]:
             ))
 
     return findings
+
+
+def _row_drop_findings(
+    job: PipelineJob,
+    ds: DataSource,
+    source_count: int,
+    target_count: int,
+) -> list[ValidationFinding]:
+    """Explain a full-load row drop. If the job has a simple single-source WHERE
+    filter, compare target_count to the filtered source count; otherwise fall
+    back to a plain row_count_drop warning."""
+    where_clause = extract_simple_filter(job.sql_query, job.source_table)
+    expected: int | None = None
+    if where_clause is not None:
+        try:
+            expected = ds.get_filtered_row_count(job.source_table, where_clause)
+        except Exception:
+            # Predicate could not be evaluated against the source — treat as
+            # unsupported and fall back to the existing behavior.
+            expected = None
+
+    if expected is None:
+        return [_row_count_drop(job, source_count, target_count)]
+    return _filter_aware_findings(job, source_count, target_count, expected)
+
+
+def _row_count_drop(job: PipelineJob, source_count: int, target_count: int) -> ValidationFinding:
+    lost_rows = source_count - target_count
+    # Guard against division by zero; source_count > 0 is guaranteed by the caller.
+    loss_pct = round(lost_rows / source_count * 100, 1) if source_count > 0 else 0.0
+    return ValidationFinding(
+        finding_type="row_count_drop",
+        severity="warning",
+        message=(
+            f"Full-load target has fewer rows than source: "
+            f"source_count={source_count}, target_count={target_count}, "
+            f"lost_rows={lost_rows}, loss_pct={loss_pct}%."
+        ),
+        affected_job=job.config_key,
+        affected_table=job.target_table,
+        recommendation=(
+            "Check the ETL transformation for unintended filtering or data loss. "
+            "Consider adding row count assertions to the pipeline."
+        ),
+    )
+
+
+def _filter_aware_findings(
+    job: PipelineJob,
+    source_count: int,
+    target_count: int,
+    expected: int,
+) -> list[ValidationFinding]:
+    filtered_out_rows = source_count - expected
+    filtered_out_pct = round(filtered_out_rows / source_count * 100, 1) if source_count > 0 else 0.0
+
+    if target_count == expected:
+        return [ValidationFinding(
+            finding_type="row_loss_explained_by_filter",
+            severity="info",
+            message=(
+                f"Row drop is explained by the job's WHERE filter: "
+                f"source_count={source_count}, expected_after_filter_count={expected}, "
+                f"target_count={target_count}, filtered_out_rows={filtered_out_rows}, "
+                f"filtered_out_pct={filtered_out_pct}%."
+            ),
+            affected_job=job.config_key,
+            affected_table=job.target_table,
+            recommendation=(
+                "No action needed — the row reduction matches the WHERE filter in the job's SQL."
+            ),
+        )]
+
+    if target_count < expected:
+        unexpected_loss_rows = expected - target_count
+        unexpected_loss_pct = (
+            round(unexpected_loss_rows / expected * 100, 1) if expected > 0 else 0.0
+        )
+        return [ValidationFinding(
+            finding_type="unexpected_row_loss",
+            severity="warning",
+            message=(
+                f"Target has fewer rows than the WHERE filter explains: "
+                f"source_count={source_count}, expected_after_filter_count={expected}, "
+                f"target_count={target_count}, filtered_out_rows={filtered_out_rows}, "
+                f"filtered_out_pct={filtered_out_pct}%, "
+                f"unexpected_loss_rows={unexpected_loss_rows}, "
+                f"unexpected_loss_pct={unexpected_loss_pct}%."
+            ),
+            affected_job=job.config_key,
+            affected_table=job.target_table,
+            recommendation=(
+                "Investigate row loss beyond the WHERE filter — e.g. additional implicit "
+                "filtering, failed inserts, or a transformation dropping rows."
+            ),
+        )]
+
+    # target_count > expected (row surplus): conservatively no finding here.
+    # Row surplus / multiplication belongs to the future join-aware advisory
+    # statistics ticket (see TODO at the top of this module).
+    return []

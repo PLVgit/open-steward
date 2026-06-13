@@ -93,6 +93,15 @@ class LocalFileDataSource:
             f"SELECT COUNT(*) FROM {self._from_clause(path)} WHERE {col} = ''"
         ).fetchone()[0]
 
+    def get_filtered_row_count(self, table_name: str, where_clause: str) -> int:
+        """Count rows in the table matching a WHERE predicate. The predicate is a
+        SQL fragment rendered by filter_analyzer (qualifiers stripped); callers
+        catch exceptions and fall back when it cannot be evaluated."""
+        path = self._require_path(table_name)
+        return self._conn.execute(
+            f"SELECT COUNT(*) FROM {self._from_clause(path)} WHERE {where_clause}"
+        ).fetchone()[0]
+
     def get_duplicate_key_count(self, table_name: str, primary_key: str) -> int:
         path = self._require_path(table_name)
         col = self._require_column(path, primary_key)

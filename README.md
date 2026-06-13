@@ -163,7 +163,9 @@ drives every page.
 - Analyze each job's SQL with sqlglot: `SELECT *`, `CAST`/`TRY_CAST`,
   `CROSS JOIN`, and full-load-without-filter risks.
 - Reconcile source vs. target snapshots: row-count drop, empty target, null and
-  duplicate primary keys — with quantitative messages.
+  duplicate primary keys — with quantitative messages. **Filter-aware:** a row
+  drop explained by a simple `WHERE` filter is reported as expected rather than
+  flagged as loss.
 - Profile target tables per column (null / empty-string / distinct rates) and
   flag all-null, high-null-rate, constant-column, and high-empty-string columns.
 - Expose all of the above over a REST API **and** a CLI, plus a five-page React UI.
@@ -194,10 +196,16 @@ Open Steward is an honest MVP. It does **not** (yet) do the following:
 ## Roadmap
 
 **Next**
-- **Filter-aware reconciliation** — explain row loss caused by `WHERE` clauses so
-  expected filtering is not flagged as unexpected loss.
 - **Join-aware advisory statistics** — `join_match_rate`, unmatched rows, and
-  possible row multiplication, surfaced as advisory (not hard errors).
+  possible row multiplication, surfaced as advisory (not hard errors). This is
+  also where row *surplus* (target with more rows than a filter explains) will be
+  handled.
+
+**Shipped recently**
+- **Filter-aware reconciliation** — a full-load row drop explained by a simple
+  single-source `WHERE` filter is reported as expected (`row_loss_explained_by_filter`)
+  instead of a false-positive `row_count_drop`; a shortfall below the filtered
+  count is flagged as `unexpected_row_loss`.
 
 **Later**
 - dbt adapter (read model definitions as pipeline jobs).

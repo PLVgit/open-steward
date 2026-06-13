@@ -254,9 +254,13 @@ Require local table snapshots (CSV or Parquet). Only enabled jobs are reconciled
 | Finding | Severity | What it means |
 |---------|----------|---------------|
 | `empty_target` | warning | Target table has 0 rows while source has rows |
-| `row_count_drop` | warning | Full-load target has fewer rows than source — includes `source_count`, `target_count`, `lost_rows`, `loss_pct` |
+| `row_count_drop` | warning | Full-load target has fewer rows than source, and the loss is **not** explained by a simple filter — includes `source_count`, `target_count`, `lost_rows`, `loss_pct` |
+| `row_loss_explained_by_filter` | info | Full-load row drop is fully accounted for by the job's simple `WHERE` filter — includes `source_count`, `expected_after_filter_count`, `target_count`, `filtered_out_rows`, `filtered_out_pct` |
+| `unexpected_row_loss` | warning | Full-load target has fewer rows than the job's simple `WHERE` filter would yield — includes the filter metrics plus `unexpected_loss_rows`, `unexpected_loss_pct` |
 | `null_primary_key` | error | Primary key column contains null values in the target — includes `null_count`, `null_pct` |
 | `duplicate_primary_key` | error | Primary key is not unique in the target — includes `duplicate_key_count` |
+
+**Filter-aware reconciliation.** For a full-load job whose SQL is a *simple single-source `WHERE` filter*, Open Steward counts how many source rows pass the filter (`expected_after_filter_count`) and compares it to the target row count: an exact match yields the `row_loss_explained_by_filter` info finding (no false-positive `row_count_drop`), while a target below the expected count yields `unexpected_row_loss`. Anything not provably simple — **any join**, multiple source tables, CTEs, subqueries, `UNION`, `GROUP BY`/`HAVING`/`DISTINCT`/`LIMIT`, aggregate/window functions, or non-trivial `WHERE` expressions — falls back to plain `row_count_drop`. (Joins legitimately change row counts and are deferred to future join-aware advisory statistics.)
 
 ### Profiling findings
 
@@ -399,10 +403,10 @@ python -m pytest -v
 **Shipped**
 - React + TypeScript UI with an interactive pipeline graph (React Flow), findings dashboard, ETL statistics panel and table profile page.
 - ETL-level statistics, exposed via the `stats` CLI command and the `/statistics/` endpoint.
+- Filter-aware reconciliation: full-load row drops explained by a simple `WHERE` filter are reported as expected (`row_loss_explained_by_filter`) instead of false-positive `row_count_drop`; shortfalls below the filtered count are flagged as `unexpected_row_loss`.
 
 **Next**
-- Filter-aware reconciliation: explain row loss caused by `WHERE` clauses so expected filtering is not flagged as unexpected loss.
-- Join-aware advisory statistics (`join_match_rate`, unmatched rows, possible row multiplication) — surfaced as advisory, not hard errors.
+- Join-aware advisory statistics (`join_match_rate`, unmatched rows, possible row multiplication, row surplus / multiplication) — surfaced as advisory, not hard errors.
 
 **Later**
 - dbt adapter (read model definitions as pipeline jobs).

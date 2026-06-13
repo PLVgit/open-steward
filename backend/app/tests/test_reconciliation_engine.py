@@ -27,6 +27,7 @@ def _job(
     pk: str | None = "id",
     load_type: str | None = "full",
     key: str = "etl_001",
+    sql: str | None = None,
 ) -> PipelineJob:
     return PipelineJob(
         config_key=key,
@@ -36,6 +37,7 @@ def _job(
         target_table=target,
         primary_key=pk,
         load_type=load_type,
+        sql_query=sql,
     )
 
 
@@ -253,3 +255,71 @@ def test_multiple_findings_same_job(tmp_path):
     types = [f.finding_type for f in findings]
     assert "row_count_drop" in types
     assert "duplicate_primary_key" in types
+
+
+# ── filter-aware reconciliation (Ticket 21) ─────────────────────────────────────
+
+# 5 rows, 3 with status='completed'
+SRC_STATUS = "id,status\n1,completed\n2,completed\n3,pending\n4,completed\n5,cancelled\n"
+TGT_3_COMPLETED = "id,status\n1,completed\n2,completed\n4,completed\n"  # 3 rows
+FILTER_SQL = "SELECT * FROM raw.orders WHERE status = 'completed'"
+
+
+def test_row_loss_fully_explained_by_filter(tmp_path):
+    _csv(tmp_path, "raw.orders", SRC_STATUS)
+    _csv(tmp_path, "staging.orders", TGT_3_COMPLETED)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None, sql=FILTER_SQL)], ds)
+    types = [f.finding_type for f in findings]
+    assert "row_loss_explained_by_filter" in types
+    assert "row_count_drop" not in types
+    assert "unexpected_row_loss" not in types
+    explained = next(f for f in findings if f.finding_type == "row_loss_explained_by_filter")
+    assert explained.severity == "info"
+    assert "source_count=5" in explained.message
+    assert "expected_after_filter_count=3" in explained.message
+    assert "target_count=3" in explained.message
+    assert "filtered_out_rows=2" in explained.message
+
+
+def test_unexpected_row_loss_after_filter(tmp_path):
+    _csv(tmp_path, "raw.orders", SRC_STATUS)
+    # Only 2 rows in target, but the filter would yield 3 → 1 unexpected lost row
+    _csv(tmp_path, "staging.orders", "id,status\n1,completed\n2,completed\n")
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None, sql=FILTER_SQL)], ds)
+    types = [f.finding_type for f in findings]
+    assert "unexpected_row_loss" in types
+    assert "row_count_drop" not in types
+    assert "row_loss_explained_by_filter" not in types
+    loss = next(f for f in findings if f.finding_type == "unexpected_row_loss")
+    assert loss.severity == "warning"
+    assert "expected_after_filter_count=3" in loss.message
+    assert "target_count=2" in loss.message
+    assert "unexpected_loss_rows=1" in loss.message
+
+
+def test_no_filter_falls_back_to_row_count_drop(tmp_path):
+    _csv(tmp_path, "raw.orders", SRC_STATUS)
+    _csv(tmp_path, "staging.orders", TGT_3_COMPLETED)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None, sql="SELECT * FROM raw.orders")], ds)
+    types = [f.finding_type for f in findings]
+    assert "row_count_drop" in types
+    assert "row_loss_explained_by_filter" not in types
+    assert "unexpected_row_loss" not in types
+
+
+def test_join_sql_falls_back_to_row_count_drop(tmp_path):
+    _csv(tmp_path, "raw.orders", SRC_STATUS)
+    _csv(tmp_path, "staging.orders", TGT_3_COMPLETED)
+    join_sql = (
+        "SELECT o.id FROM raw.orders o JOIN raw.customers c ON o.id = c.id "
+        "WHERE o.status = 'completed'"
+    )
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None, sql=join_sql)], ds)
+    types = [f.finding_type for f in findings]
+    assert "row_count_drop" in types
+    assert "unexpected_row_loss" not in types
+    assert "row_loss_explained_by_filter" not in types

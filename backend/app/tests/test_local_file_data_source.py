@@ -121,6 +121,24 @@ def test_get_duplicate_key_count_with_dupes(tmp_path):
     assert LocalFileDataSource(tmp_path).get_duplicate_key_count("raw.orders", "id") == 1
 
 
+def test_get_filtered_row_count(tmp_path):
+    _write_csv(
+        tmp_path / "raw" / "orders.csv",
+        "id,status\n1,completed\n2,completed\n3,pending\n4,completed\n",
+    )
+    ds = LocalFileDataSource(tmp_path)
+    assert ds.get_filtered_row_count("raw.orders", "status = 'completed'") == 3
+
+
+def test_get_filtered_row_count_in_clause(tmp_path):
+    _write_csv(
+        tmp_path / "raw" / "orders.csv",
+        "id,status\n1,completed\n2,pending\n3,cancelled\n",
+    )
+    ds = LocalFileDataSource(tmp_path)
+    assert ds.get_filtered_row_count("raw.orders", "status IN ('completed', 'pending')") == 2
+
+
 # ── error handling ────────────────────────────────────────────────────────────
 
 def test_missing_table_raises_file_not_found(tmp_path):
