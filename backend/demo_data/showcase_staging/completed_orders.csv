@@ -1,0 +1,7 @@
+order_id,customer_id,status,amount
+1,C1,completed,100.00
+2,C2,completed,50.00
+6,C9,completed,40.00
+8,,completed,60.00
+10,C2,completed,25.00
+11,C3,completed,15.00

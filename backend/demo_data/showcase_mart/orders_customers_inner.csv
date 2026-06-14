@@ -1,0 +1,10 @@
+order_id,customer_id,customer_name
+1,C1,Alice
+2,C2,Bob
+3,C3,Carol
+4,C4,Dave
+5,C5,Eve
+9,C1,Alice
+10,C2,Bob
+11,C3,Carol
+12,C4,Dave

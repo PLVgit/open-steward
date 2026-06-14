@@ -1,0 +1,11 @@
+order_id,customer_id,status,coupon_code,notes,region,legacy_flag
+1,C1,completed,SAVE10,"first order",EU,
+1,C1,completed,,"",EU,
+2,C2,completed,,"",EU,
+3,C3,paid,,"rush",EU,
+4,C4,paid,,"",EU,
+5,C5,cancelled,WELCOME,"",EU,
+6,C9,completed,,"unknown",EU,
+7,C9,pending,,"",EU,
+8,,completed,,"missing",EU,
+,C2,completed,,"",EU,

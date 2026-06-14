@@ -1,0 +1,13 @@
+order_id,customer_id,product_id,status,amount,coupon_code,notes,source_system
+1,C1,P1,completed,100.00,SAVE10,first order,web
+2,C2,P1,completed,50.00,,,web
+3,C3,P2,paid,75.00,,rush,web
+4,C4,P2,paid,20.00,,,mobile
+5,C5,P3,cancelled,30.00,,,mobile
+6,C9,P1,completed,40.00,,unknown cust,web
+7,C9,P4,pending,10.00,,,web
+8,,P2,completed,60.00,,missing cust,mobile
+9,C1,P3,paid,90.00,WELCOME,repeat,web
+10,C2,P5,completed,25.00,,,web
+11,C3,P1,completed,15.00,,,mobile
+12,C4,P2,pending,80.00,,,web

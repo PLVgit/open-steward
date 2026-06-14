@@ -1,0 +1,12 @@
+config_key,pipeline_name,enabled,source_table,target_table,sql_query,execution_order,primary_key,load_type
+sc_load_orders,Load Orders (raw to staging),true,showcase_raw.orders,showcase_staging.orders_loaded,"SELECT * FROM showcase_raw.orders",10,order_id,full
+sc_completed_orders,Completed Orders (filter explained),true,showcase_raw.orders,showcase_staging.completed_orders,"SELECT order_id, customer_id, status, amount FROM showcase_raw.orders WHERE status = 'completed'",20,,full
+sc_paid_orders,Paid Orders (filter unexpected loss),true,showcase_raw.orders,showcase_staging.paid_orders_broken,"SELECT order_id, customer_id, status FROM showcase_raw.orders WHERE status = 'paid'",30,,full
+sc_orders_customers_inner,Orders x Customers (INNER explained),true,showcase_raw.orders,showcase_mart.orders_customers_inner,"SELECT o.order_id, o.customer_id, c.customer_name FROM showcase_raw.orders o INNER JOIN showcase_raw.customers_clean c ON o.customer_id = c.customer_id",40,,full
+sc_orders_customer_surplus,Orders x Customers (surplus),true,showcase_raw.orders,showcase_mart.orders_customer_surplus,"SELECT o.order_id FROM showcase_raw.orders o INNER JOIN showcase_raw.customers_clean c ON o.customer_id = c.customer_id",50,,full
+sc_orders_customers_loss,Orders x Customers (loss),true,showcase_raw.orders,showcase_mart.orders_customers_loss,"SELECT o.order_id FROM showcase_raw.orders o INNER JOIN showcase_raw.customers_clean c ON o.customer_id = c.customer_id",60,,full
+sc_orders_promos_left,Orders x Promotions (LEFT fan-out),true,showcase_raw.orders,showcase_mart.orders_promos_left,"SELECT o.order_id, o.product_id, p.promo_code FROM showcase_raw.orders o LEFT JOIN showcase_raw.promotions p ON o.product_id = p.product_id",70,,full
+sc_products_promos_left,Products x Promotions (multiplication),true,showcase_raw.products,showcase_mart.products_promos_left,"SELECT pr.product_id, p.promo_code FROM showcase_raw.products pr LEFT JOIN showcase_raw.promotions p ON pr.product_id = p.product_id",80,,full
+sc_cast_demo,Cast Demo (SQL risk only),true,showcase_raw.orders,showcase_mart.cast_demo,"SELECT order_id, CAST(amount AS VARCHAR) AS amount_str FROM showcase_raw.orders",90,,full
+sc_cross_demo,Cross Join Demo (SQL risk only),true,showcase_raw.orders,showcase_mart.cross_demo,"SELECT * FROM showcase_raw.orders o CROSS JOIN showcase_raw.products p",100,,full
+sc_unparseable_demo,Unparseable SQL Demo,true,showcase_raw.orders,showcase_mart.unparseable_demo,"SELECT * FROM (",110,,full
