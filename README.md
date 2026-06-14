@@ -9,11 +9,15 @@ tables for data-quality issues — from a simple CSV config plus optional local
 table snapshots. It ships as a **FastAPI backend**, a **typer CLI**, and a
 **React + TypeScript UI**.
 
-**Local-first and demo-data based.** Everything runs on your machine against a
-bundled demo dataset (or your own CSV/Parquet snapshots). There are no cloud
-services, no live database connections, and no authentication in the current
-release. This is an open-source portfolio project, not a production system —
-see [Limitations](#limitations).
+Point Open Steward at your pipeline config and table data and it analyzes
+dependencies, flags risky SQL, explains row-count changes through filters and
+joins, and profiles your tables for data-quality issues — from the CLI, the API,
+or the UI.
+
+> 📖 **Full documentation:** [`docs/OPEN_STEWARD_GUIDE.md`](docs/OPEN_STEWARD_GUIDE.md) —
+> the complete guide to what Open Steward does, its architecture, the
+> transformation-aware reconciliation model, the finding catalog, and how to run,
+> use, and present the project.
 
 ---
 
@@ -143,10 +147,9 @@ drives every page.
 - **Graph** — the pipeline dependency graph rendered with React Flow. Table nodes,
   edges labeled with the `config_key` that connects them, left-to-right execution
   layering, and a banner if a circular dependency is detected.
-- **Findings** — structural, SQL **and reconciliation** findings (the dashboard
-  requests them against the demo snapshots), with error/warning/info summary
-  counts and a severity filter. Each finding shows its type, affected job/table,
-  message, and recommendation.
+- **Findings** — structural, SQL **and reconciliation** findings, with
+  error/warning/info summary counts and a severity filter. Each finding shows its
+  type, affected job/table, message, and recommendation.
 - **Statistics** — per-job ETL metrics (row counts, row loss, primary-key
   null/duplicate counts) with summary cards. Missing/not-computable values render
   as `—`, never as `0`.
@@ -176,24 +179,19 @@ drives every page.
 
 ---
 
-## Limitations
+## Current analysis scope
 
-Open Steward is an honest MVP. It does **not** (yet) do the following:
+Open Steward's analysis is deliberately conservative — it explains what it can
+prove and falls back safely otherwise. Current coverage:
 
 - **One source table per job.** `PipelineJob.source_table` is a single string;
-  multi-source joins are only partially modeled (the raw SQL is preserved for
-  analysis).
-- **Single-column primary keys only** for reconciliation/profiling.
-- **Local snapshots only.** Reconciliation and profiling read local CSV/Parquet
-  files — there is no live database connection.
-- **Demo-data based.** The bundled demo drives the walkthrough and the UI; point
-  `--data-dir` at your own exported snapshots to use real data locally.
-- **Column-name restrictions.** Profiling skips columns whose names are not
-  `[A-Za-z0-9_]+`.
-- **Dev-only frontend wiring.** The UI reaches the backend through the Vite dev
-  proxy; production serving/build, deployment, and hosting are out of scope.
-- **No authentication, multi-tenancy, scheduling, or alerting.** Single-user,
-  local, on-demand.
+  multi-source joins are modeled through the job's SQL (see transformation-aware
+  reconciliation), with the raw SQL preserved for analysis.
+- **Single-column primary keys** for reconciliation/profiling.
+- **Simple SQL shapes for transformation explanation** — a single `SELECT`, one
+  two-table INNER/LEFT join, a single equality `ON`, and a simple left-side
+  `WHERE`. More complex SQL falls back to plain row-count reconciliation.
+- **Column names** must match `[A-Za-z0-9_]+` for profiling.
 
 ---
 
@@ -213,9 +211,7 @@ Open Steward is an honest MVP. It does **not** (yet) do the following:
 **Possible future directions** (not started)
 - More transformation shapes: RIGHT/FULL/NATURAL joins, composite join keys,
   multiple joins, post-join `WHERE`.
-- dbt adapter (read model definitions as pipeline jobs).
-- Azure Data Factory metadata/log adapter.
-- Read-only live database connectors (e.g. Postgres, Snowflake).
+- Additional data-source integrations and adapters.
 - Distribution / histogram profiling (e.g. via Polars).
 - `--output json` on all CLI commands; configurable thresholds and row-loss
   tolerances.

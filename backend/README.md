@@ -2,7 +2,7 @@
 
 > Local-first pipeline intelligence for Analytics Engineers.
 
-Open Steward scans SQL-config-driven ETL pipelines, reconstructs their dependencies, detects risky transformations, and validates data quality — all from a simple CSV config and optional local table snapshots. No cloud required, no agents, no database connections in the first MVP.
+Open Steward scans SQL-config-driven ETL pipelines, reconstructs their dependencies, detects risky transformations, and validates data quality — from a simple CSV config plus your table data (CSV or Parquet).
 
 ---
 
@@ -407,14 +407,15 @@ python -m pytest -v
 
 ---
 
-## Current limitations
+## Current analysis scope
 
-- **One source table per job.** `PipelineJob.source_table` is a single string. ETL jobs that join multiple source tables are only partially modelled — the SQL is stored in `sql_query` for future analysis.
-- **Reconciliation requires local snapshots.** There is no live database connection. Source and target tables must be exported to CSV or Parquet files under `--data-dir` before reconciliation can run.
-- **Single-column primary keys only.** Composite primary keys (e.g. `order_id, line_id`) are not supported in reconciliation or profiling.
+Analysis is deliberately conservative — Open Steward explains what it can prove and falls back safely otherwise.
+
+- **One source table per job.** `PipelineJob.source_table` is a single string. Jobs that join multiple tables are modelled through the job's SQL (see join-aware reconciliation), with the raw SQL preserved for analysis.
+- **Reconciliation reads table data** from CSV or Parquet under `--data-dir`.
+- **Single-column primary keys.** Composite primary keys (e.g. `order_id, line_id`) are not yet covered in reconciliation or profiling.
+- **Simple SQL shapes for transformation explanation** — a single `SELECT`, one two-table INNER/LEFT join, a single equality `ON`, and a simple left-side `WHERE`. More complex SQL falls back to plain row-count reconciliation.
 - **Column name restrictions.** Columns with spaces or special characters (e.g. `Order Date`) are skipped in profiling. Column names must match `[A-Za-z0-9_]+`.
-- **Frontend wiring is dev-only.** The React UI (`../frontend`) reaches the API through the Vite dev proxy; production serving/build and deployment are out of scope.
-- **No authentication or multi-tenancy.** Open Steward is a single-user local tool in its current form.
 
 ---
 
@@ -427,10 +428,8 @@ python -m pytest -v
 - Join-aware advisory statistics: simple two-table INNER/LEFT joins are explained as a staged `source → after_filter → expected_after_join → target` chain, with advisory findings for unmatched rows, null keys and possible row multiplication / many-to-many fan-out.
 
 **Later** (not started)
-- dbt adapter (read model definitions as pipeline jobs).
-- Azure Data Factory metadata/log adapter.
-- Read-only live database connectors (e.g. Postgres, Snowflake).
 - More transformation shapes: RIGHT/FULL/NATURAL joins, composite join keys, multiple joins, post-join WHERE.
+- Additional data-source integrations and adapters.
 - Row-loss tolerance thresholds per job (`row_loss_tolerance_pct`).
 - Distribution and histogram profiling (e.g. via Polars).
 - `--output json` flag on all CLI commands; suggested data-quality rules from profile results.
