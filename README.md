@@ -1,81 +1,129 @@
 # Open Steward
 
-> A local-first pipeline intelligence and virtual data steward for Analytics Engineers.
+> **Local-first pipeline intelligence and data-quality platform for SQL-config-driven ETL workflows.**
+
+`Python` · `FastAPI` · `DuckDB` · `sqlglot` · `NetworkX` · `Typer` — `React` · `TypeScript` · `React Flow`
+
+**Local-first** · **Aggregate-only analysis** · **CLI + REST API + UI** · **~290 tests** · **MIT licensed**
+
+![Open Steward pipeline dependency graph in the control-room UI](docs/screenshots/graph-showcase.png)
 
 Open Steward reads SQL-config-driven ETL pipeline definitions, reconstructs the
 dependencies between jobs and tables, computes execution order, flags risky SQL
-transformations, reconciles source vs. target table data, and profiles final
-tables for data-quality issues — from a simple CSV config plus optional local
-table snapshots. It ships as a **FastAPI backend**, a **typer CLI**, and a
-**React + TypeScript UI**.
-
-Point Open Steward at your pipeline config and table data and it analyzes
-dependencies, flags risky SQL, explains row-count changes through filters and
-joins, and profiles your tables for data-quality issues — from the CLI, the API,
-or the UI.
-
-> 📖 **Full documentation:** [`docs/OPEN_STEWARD_GUIDE.md`](docs/OPEN_STEWARD_GUIDE.md) —
-> the complete guide to what Open Steward does, its architecture, the
-> transformation-aware reconciliation model, the finding catalog, and how to run,
-> use, and present the project.
+transformations, **explains** row-count changes through filters and joins, and
+profiles final tables for data-quality issues — all from a simple CSV config plus
+optional local table snapshots, and all running right next to your data.
 
 ---
 
-## Screenshots
+## The problem
 
-> 📸 **Screenshots pending capture.** See [`docs/screenshots/README.md`](docs/screenshots/README.md)
-> for how to capture them. The links below resolve once the PNGs are added.
+SQL-config-driven ETL pipelines (a metadata table or CSV of jobs, each with a
+`source_table`, `target_table`, and a `sql_query`) get hard to reason about as
+they grow:
 
-| Page | Preview |
+- **What runs, and in what order?** Dependencies are implicit in the source/target tables.
+- **Which transformations are risky?** `SELECT *`, casts, cross joins, and unfiltered full loads hide in a long config.
+- **Did the data survive?** A job can silently drop rows, duplicate primary keys, or fan rows out through a join.
+- **Is the final table clean?** High null rates, empty strings, and constant columns hide in the output.
+
+Open Steward helps an Analytics Engineer **inspect and explain** these issues
+*before* they reach downstream consumers.
+
+---
+
+## Features
+
+### 🔗 Pipeline graph & dependency intelligence
+
+A table-level dependency graph (NetworkX) with computed execution order and cycle
+detection, rendered as an interactive control-room canvas (React Flow). Lanes flow
+**source → staging → mart**; edge labels stay hidden for a clean overview and
+reveal on interaction.
+
+![Pipeline graph laid out as source, staging and mart lanes](docs/screenshots/graph-showcase.png)
+
+Hover or click an edge or a table to open the inspector — the **edge inspector**
+(left) shows a dependency's config key, source and target; the **table inspector**
+(right) shows a table's namespace and incoming/outgoing dependency counts:
+
+<p align="center">
+  <img src="docs/screenshots/graph-inspector-edge-showcase.png" width="49%" alt="Selected dependency edge showing its config key, source and target" />
+  <img src="docs/screenshots/graph-inspector-node-showcase.png" width="49%" alt="Selected table showing its namespace and dependency counts" />
+</p>
+
+### 🔬 Transformation-aware reconciliation
+
+The headline capability. Instead of flagging *any* source↔target difference, Open
+Steward tries to **explain** it from the job's own SQL as a staged chain:
+
+```
+source_count → after_filter_count → expected_after_join_count → target_count
+```
+
+A simple `WHERE` filter explains expected row loss; a simple INNER/LEFT join
+explains expected loss or fan-out. Anything that matches the expectation is
+reported as *explained* (info); only the unexplained delta is flagged.
+
+![Findings console showing transformation-aware reconciliation findings](docs/screenshots/findings-transformations-showcase.png)
+
+### 🚨 Findings / issue console
+
+Structural, SQL, **and** reconciliation findings in one feed, with severity
+summary counts and a filter. Each finding carries its type, affected job/table,
+message, and recommendation.
+
+![Findings console filtered to error-severity issues](docs/screenshots/findings-errors-showcase.png)
+
+### 📊 ETL statistics
+
+Per-job numeric metrics behind reconciliation — row counts, row loss, primary-key
+null/duplicate counts. Not-computable values render as `—`, never as `0`.
+
+![Per-job ETL statistics telemetry panels](docs/screenshots/statistics-showcase.png)
+
+### 🧪 Data-quality profiling
+
+Per-column null / empty-string / distinct rates for a target table, with
+all-null, high-null-rate, constant-column, and high-empty-string findings.
+
+![Table profile with per-column data-quality metrics and findings](docs/screenshots/profile-showcase.png)
+
+---
+
+## Tech stack
+
+| Layer | Technologies |
 |---|---|
-| Pipeline Graph | ![Pipeline graph — screenshot pending](docs/screenshots/graph.png) |
-| Findings | ![Findings dashboard — screenshot pending](docs/screenshots/findings.png) |
-| ETL Statistics | ![ETL statistics — screenshot pending](docs/screenshots/statistics.png) |
-| Table Profile | ![Table profile — screenshot pending](docs/screenshots/profile.png) |
-
----
-
-## Architecture
-
-```
-ETL config CSV ──┐
-                 ├─►  FastAPI backend                         React + TypeScript UI
-local table      │      adapters/   CSV + DuckDB file reader     Vite · Tailwind · shadcn/ui
-snapshots  ──────┘      services/   graph · sql · reconcile · profile · stats
-(CSV / Parquet)         api/        /pipelines /graph /findings /statistics /profile
-                        models/     PipelineJob · Finding · JobStatistics · TableProfile
-                            ▲                                          │
-                            └────────── /api dev proxy ◄───────────────┘
-                        CLI (typer): list · graph · check · profile · stats
-```
-
-- **Backend** — Python 3.11+, FastAPI, Pydantic. Core engines: **NetworkX**
-  (dependency graph + execution order), **sqlglot** (SQL risk analysis),
-  **DuckDB** (aggregate queries over local CSV/Parquet). Same services power
-  both the CLI and the REST API.
-- **Frontend** — React + TypeScript (Vite), Tailwind + shadcn/ui, **React Flow**
-  (`@xyflow/react`) for the graph. Talks to the backend through a `/api` dev
-  proxy, so no backend CORS configuration is needed.
-
-Component docs: [`backend/README.md`](backend/README.md) ·
-[`frontend/README.md`](frontend/README.md).
+| **Backend** | Python 3.11+, FastAPI, Pydantic, Typer (CLI) |
+| **Analysis engines** | NetworkX (graph + execution order), sqlglot (SQL AST), DuckDB (aggregate queries over CSV/Parquet) |
+| **Frontend** | React, TypeScript, Vite, Tailwind, shadcn/ui, React Flow (`@xyflow/react`) |
+| **Quality** | pytest + Vitest (~290 tests), GitHub Actions CI |
 
 ---
 
 ## Quick start
 
-### 1. Backend (API + CLI)
+> Requires Python 3.11+ and Node 18+.
+
+**1. Backend (API + CLI)**
 
 ```bash
 cd backend
 pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8000     # API at http://localhost:8000/docs
+uvicorn app.main:app --reload --port 8000     # API + docs at http://localhost:8000/docs
 ```
 
-> **Windows / PATH note:** if the `open-steward` CLI is not found after install,
-> run it as `python -m app.cli` from the `backend/` directory.
+The `pip install` adds an `open-steward` command. The CLI can be invoked three
+equivalent ways — all run from the `backend/` directory:
 
-### 2. Frontend (UI)
+```bash
+open-steward --help        # installed entry point
+python -m app.cli --help   # module fallback (if the command isn't on PATH)
+py -m app.cli --help       # Windows launcher fallback
+```
+
+**2. Frontend (UI)**
 
 ```bash
 cd frontend
@@ -83,142 +131,95 @@ npm install
 npm run dev                                    # UI at http://localhost:5173
 ```
 
-Open the printed URL. With the backend running, the **Overview** page reports
-"Connected." and lists the demo jobs. The config selector in the header defaults
-to `demo_config.csv`.
+With the backend running, the **Overview** page reports "Connected." and lists the
+jobs. The config selector in the header drives every page.
+
+![Overview dashboard reporting a healthy backend connection and the job roster](docs/screenshots/overview-showcase.png)
 
 ---
 
-## CLI demo walkthrough
+## Showcase demo
 
-The `backend/demo_data/` directory holds a small e-commerce pipeline config plus
-local table snapshots. Run these from the `backend/` directory.
+A synthetic `showcase_config.csv` exercises **every** analysis capability —
+structural, SQL, filter- and join-aware reconciliation, and profiling — with
+predictable row-count causality.
 
-The demo models a four-job pipeline:
-
-| Job | Source | Target | Status |
-|-----|--------|--------|--------|
-| `etl_001` — Load Orders | `raw.orders` | `staging.orders` | enabled |
-| `etl_002` — Load Customers | `raw.customers` | `staging.customers` | enabled |
-| `etl_003` — Enrich Orders | `staging.orders` | `mart.orders_enriched` | enabled |
-| `etl_004` — Daily Revenue | `mart.orders_enriched` | `mart.daily_revenue` | **disabled** |
-
-**List jobs** — `open-steward list --file demo_data/demo_config.csv`
-
-**Dependency graph & execution order** — `open-steward graph --file demo_data/demo_config.csv`
-
-**Structural + SQL checks (no data needed)** — `open-steward check --file demo_data/demo_config.csv`
-
-**Add reconciliation against local snapshots** — `open-steward check --file demo_data/demo_config.csv --data-dir demo_data`
-finds a `duplicate_primary_key` error in `staging.customers` and a
-`row_count_drop` warning on `staging.orders` (20 → 18 rows).
-
-**Per-job ETL statistics** — `open-steward stats --file demo_data/demo_config.csv --data-dir demo_data`
-
-```
-Open Steward  ·  demo_config.csv  ·  3 enabled jobs
-
-KEY      TARGET                SOURCE   TARGET#  LOST    LOSS%    PK NULLS  PK DUPS
-etl_001  staging.orders        20       18       2       10.0%    0         0
-etl_002  staging.customers     10       11       0       0.0%     0         1
-etl_003  mart.orders_enriched  18       —        —       —        —         —
-
-Statistics describe what happened numerically; run 'check' for findings.
+```bash
+# from backend/ (swap open-steward for "python -m app.cli" / "py -m app.cli" if needed)
+open-steward check   --file samples/showcase_config.csv --data-dir demo_data
+open-steward stats   --file samples/showcase_config.csv --data-dir demo_data
+open-steward profile --table showcase_staging.orders_loaded --data-dir demo_data
 ```
 
-`—` means *not computable* (here, `mart.orders_enriched` has no local snapshot) —
-it does **not** mean zero.
-
-**Profile a table** — `open-steward profile --table staging.orders --data-dir demo_data`
-reports per-column null/empty/distinct rates and flags `coupon_code` (83.3% null).
-
-Full command output and the finding catalog live in
-[`backend/README.md`](backend/README.md#demo-walkthrough).
+In the UI, set the header **Config** field to `showcase_config.csv` and every page
+reflects the showcase. Full walkthrough: [`docs/SHOWCASE_WALKTHROUGH.md`](docs/SHOWCASE_WALKTHROUGH.md).
 
 ---
 
-## UI tour
+## Architecture
 
-Run both servers (above), then visit each page. The selected config file (header)
-drives every page.
+The CLI and the REST API share one Python service layer; the React UI talks to the
+API through a dev proxy (no CORS setup needed).
 
-- **Overview** — confirms the backend connection and lists the configured jobs
-  (enabled/disabled). Your "is everything wired up?" page.
-- **Graph** — the pipeline dependency graph rendered with React Flow. Table nodes,
-  edges labeled with the `config_key` that connects them, left-to-right execution
-  layering, and a banner if a circular dependency is detected.
-- **Findings** — structural, SQL **and reconciliation** findings, with
-  error/warning/info summary counts and a severity filter. Each finding shows its
-  type, affected job/table, message, and recommendation.
-- **Statistics** — per-job ETL metrics (row counts, row loss, primary-key
-  null/duplicate counts) with summary cards. Missing/not-computable values render
-  as `—`, never as `0`.
-- **Profile** — profiles a chosen table (default `staging.orders`): table summary,
-  a per-column stats table, and data-quality findings (e.g. high null rate).
+```
+  ETL config CSV ─────┐
+                      ├──►  Backend (FastAPI + Typer share one service layer)
+  local table         │
+  snapshots ──────────┘     adapters/   csv_adapter · DataSource (aggregate-only, DuckDB)
+  (CSV / Parquet)           services/   graph_builder (NetworkX) · sql_analyzer (sqlglot)
+                            │           reconciliation_engine ─ filter_analyzer
+                            │                                 └ join_analyzer · join_statistics
+                            │           dq_profiler · etl_statistics · finding_detector
+                            │           ──────────────────────────────────────────────
+                            │  api/routes/  /pipelines /graph /findings /statistics /profile
+                            │  cli.py        list · graph · check · profile · stats
+                            ▲
+                            │  /api dev proxy
+                            │
+   Frontend (Vite/React/TS) ┘  Overview · Graph (React Flow) · Findings · Statistics · Profile
+```
 
----
-
-## What Open Steward can do today
-
-- Parse a SQL-config-driven ETL pipeline from a CSV.
-- Build the table dependency graph, compute execution order, and detect cycles,
-  duplicate targets, disabled-dependency and unresolved-upstream issues.
-- Analyze each job's SQL with sqlglot: `SELECT *`, `CAST`/`TRY_CAST`,
-  `CROSS JOIN`, and full-load-without-filter risks.
-- Reconcile source vs. target snapshots: row-count drop, empty target, null and
-  duplicate primary keys — with quantitative messages.
-- **Transformation-aware reconciliation:** explain row-count changes step by step
-  for simple SQL. A `WHERE` filter (`source → after_filter`) and a simple two-table
-  INNER/LEFT join (`after_filter → expected_after_join`) are modeled as scalar
-  counts, so an expected drop or join fan-out is reported as *explained* rather
-  than flagged — with advisory findings for unmatched rows and possible row
-  multiplication.
-- Profile target tables per column (null / empty-string / distinct rates) and
-  flag all-null, high-null-rate, constant-column, and high-empty-string columns.
-- Expose all of the above over a REST API **and** a CLI, plus a five-page React UI.
+Component docs: [`backend/README.md`](backend/README.md) · [`frontend/README.md`](frontend/README.md).
 
 ---
 
-## Current analysis scope
+## Design principles
 
-Open Steward's analysis is deliberately conservative — it explains what it can
-prove and falls back safely otherwise. Current coverage:
+- **Local-first** — runs right next to your data, fast setup, no infrastructure to stand up.
+- **Aggregate-only where possible** — the `DataSource` interface returns scalar metrics, never raw rows; even join analysis uses scalar `COUNT(*)` (the join is never materialized).
+- **Conservative analysis** — transformation explanation only applies to provably simple SQL shapes.
+- **Safe fallback over false confidence** — ambiguous SQL falls back to plain row-count reconciliation rather than emitting a misleading explanation.
 
-- **One source table per job.** `PipelineJob.source_table` is a single string;
-  multi-source joins are modeled through the job's SQL (see transformation-aware
-  reconciliation), with the raw SQL preserved for analysis.
-- **Single-column primary keys** for reconciliation/profiling.
-- **Simple SQL shapes for transformation explanation** — a single `SELECT`, one
-  two-table INNER/LEFT join, a single equality `ON`, and a simple left-side
-  `WHERE`. More complex SQL falls back to plain row-count reconciliation.
-- **Column names** must match `[A-Za-z0-9_]+` for profiling.
+---
+
+## Current limitations
+
+- No live database connectors yet — analysis runs over a config CSV plus local CSV/Parquet snapshots.
+- No dbt or ADF adapters yet.
+- Transformation explanation covers **simple SQL only** — a single `SELECT`, one two-table INNER/LEFT join, a single equality `ON`, and a simple left-side `WHERE`. More complex SQL falls back to plain reconciliation.
+- Single-column primary and join keys.
 
 ---
 
 ## Roadmap
 
-**Shipped recently**
-- **Filter-aware reconciliation** — a full-load row drop explained by a simple
-  single-source `WHERE` filter is reported as expected (`row_loss_explained_by_filter`)
-  instead of a false-positive `row_count_drop`; a shortfall is flagged as
-  `unexpected_row_loss`.
-- **Join-aware advisory statistics** — simple two-table INNER/LEFT joins are
-  explained as a staged `source → after_filter → expected_after_join → target`
-  chain (`row_count_change_explained_by_transformations`, `unexpected_row_loss_after_join`,
-  `unexpected_row_surplus_after_join`), plus advisory `join_unmatched_rows`,
-  `join_key_nulls`, `possible_row_multiplication` and `possible_many_to_many_join`.
+| Area | Planned |
+|---|---|
+| **Adapters** | dbt adapter; ADF / config-source adapter |
+| **Connectivity** | live database connectors |
+| **Reconciliation** | composite join keys; RIGHT/FULL joins; multi-join and post-join `WHERE` |
+| **Configuration** | richer, configurable thresholds and row-loss tolerances |
 
-**Possible future directions** (not started)
-- More transformation shapes: RIGHT/FULL/NATURAL joins, composite join keys,
-  multiple joins, post-join `WHERE`.
-- Additional data-source integrations and adapters.
-- Distribution / histogram profiling (e.g. via Polars).
-- `--output json` on all CLI commands; configurable thresholds and row-loss
-  tolerances.
+---
+
+## Documentation
+
+- 📖 [`docs/OPEN_STEWARD_GUIDE.md`](docs/OPEN_STEWARD_GUIDE.md) — full guide: what it does, architecture, the reconciliation model, and the finding catalog.
+- 🧪 [`docs/SHOWCASE_WALKTHROUGH.md`](docs/SHOWCASE_WALKTHROUGH.md) — reproducible showcase demo: step-by-step CLI / API / UI tour with expected findings.
+- 🎨 [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) — the control-room UI design system.
 
 ---
 
 ## License
 
-[MIT](LICENSE) © 2026 Pol López Vidaller. Open source — contributions and forks
-welcome.
+[MIT](LICENSE) © 2026 Pol López Vidaller. Open source — contributions and forks welcome.

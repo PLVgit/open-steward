@@ -276,3 +276,7 @@ def profile(
     findings = detect_profile_findings(tbl)
     code = _render_profile_text(tbl, findings)
     raise typer.Exit(code=code)
+
+
+if __name__ == "__main__":
+    app()

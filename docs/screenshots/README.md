@@ -1,35 +1,25 @@
-# Screenshots — capture guide
+# Screenshots
 
-The root `README.md` references the images below. They are **not yet captured** —
-capture them manually by running the app, then drop the PNGs into this folder
-with the exact filenames listed.
+Canonical screenshots of the Open Steward UI, used by the root [`README.md`](../../README.md)
+and the docs in [`../`](../). All are captured against `showcase_config.csv` using
+the dark control-room theme (see [`../DESIGN_SYSTEM.md`](../DESIGN_SYSTEM.md#8-screenshot-standards)).
 
-## How to capture
+## Inventory
 
-1. Start the backend:
-   ```bash
-   cd backend
-   uvicorn app.main:app --reload --port 8000
-   ```
-2. Start the frontend:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-3. Open the printed URL (default http://localhost:5173). The config selector in
-   the header should read `demo_config.csv`.
-4. Capture each page at a reasonable window width (~1280px) and save as PNG.
+| File | Page / view |
+|---|---|
+| `overview-showcase.png` | Overview — connection status + job roster |
+| `graph-showcase.png` | Graph — source → staging → mart lanes (default, edge labels hidden) |
+| `graph-inspector-edge-showcase.png` | Graph — selected-edge inspector (config key, source, target) |
+| `graph-inspector-node-showcase.png` | Graph — selected-table inspector (namespace, dependency counts) |
+| `findings-transformations-showcase.png` | Findings — transformation-aware reconciliation results |
+| `findings-errors-showcase.png` | Findings — filtered to error severity |
+| `statistics-showcase.png` | Statistics — per-job ETL telemetry |
+| `profile-showcase.png` | Profile — `showcase_staging.orders_loaded` |
 
-## Required images
+## Re-capturing
 
-| Filename | Page | What it should show |
-|---|---|---|
-| `overview.png` | Overview (`/`) | "Connected." status and the demo job list |
-| `graph.png` | Graph (`/graph`) | The pipeline dependency graph with labeled edges |
-| `findings.png` | Findings (`/findings`) | Summary counts, severity filter, and finding cards including reconciliation findings (e.g. `duplicate_primary_key`, `row_count_drop`) |
-| `statistics.png` | Statistics (`/statistics`) | Summary cards and per-job metric cards (with an `—` value visible) |
-| `profile.png` | Profile (`/profile`) | `staging.orders` table summary, column-stats table, and the high-null-rate finding |
-
-Until these files exist, the README image links will show their alt text
-("screenshot pending").
+1. Start the backend (`uvicorn app.main:app --reload --port 8000` from `backend/`).
+2. Start the frontend (`npm run dev` from `frontend/`) and open the printed URL.
+3. Set the header **Config** field to `showcase_config.csv`.
+4. Capture each page at ~1280px width and save as PNG with the filename above.

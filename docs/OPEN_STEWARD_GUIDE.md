@@ -216,8 +216,9 @@ cd backend
 uvicorn app.main:app --reload --port 8000
 ```
 
-> **Windows / PATH note:** if the `open-steward` CLI is not found after install,
-> run it as `python -m app.cli` from the `backend/` directory.
+> **PATH note:** if the `open-steward` CLI is not found after install, run it as a
+> module from the `backend/` directory: `python -m app.cli …` (or `py -m app.cli …`
+> on Windows).
 
 ### Frontend (UI)
 
@@ -341,16 +342,43 @@ header (default `demo_config.csv`) drives every page.
 - **Profile** — profiles a chosen table (default `staging.orders`): table summary,
   a per-column stats table, and data-quality findings.
 
-Screenshots (capture per [`docs/screenshots/README.md`](screenshots/README.md);
-the links resolve once the PNGs are added):
+The UI follows a dark "control-room" design language (see
+[`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md)). All screenshots below are captured against
+`showcase_config.csv`.
 
-| Page | Image |
+**Overview** — backend connection status and the configured-job roster:
+
+![Overview dashboard reporting a healthy backend connection and the job roster](screenshots/overview-showcase.png)
+
+**Graph** — the dependency graph in source → staging → mart lanes. Edge labels are
+hidden by default for a clean canvas and revealed on hover/selection:
+
+![Pipeline graph laid out as source, staging and mart lanes](screenshots/graph-showcase.png)
+
+Clicking an edge or a table opens an inspector with the details available from the
+graph payload:
+
+| Edge inspector — config key, source, target | Table inspector — namespace + dependency counts |
 |---|---|
-| Overview | `docs/screenshots/overview.png` *(pending)* |
-| Graph | `docs/screenshots/graph.png` *(pending)* |
-| Findings | `docs/screenshots/findings.png` *(pending)* |
-| Statistics | `docs/screenshots/statistics.png` *(pending)* |
-| Profile | `docs/screenshots/profile.png` *(pending)* |
+| ![Selected dependency edge showing its config key, source and target tables](screenshots/graph-inspector-edge-showcase.png) | ![Selected table showing its namespace and incoming/outgoing dependency counts](screenshots/graph-inspector-node-showcase.png) |
+
+**Findings** — structural, SQL and reconciliation findings together, with severity
+summary counts and a filter. Transformation-aware reconciliation findings are
+tagged so they stand out:
+
+![Findings console showing transformation-aware reconciliation findings](screenshots/findings-transformations-showcase.png)
+
+The severity filter narrows the feed — e.g. to error-severity issues only:
+
+![Findings console filtered to error-severity issues](screenshots/findings-errors-showcase.png)
+
+**Statistics** — per-job ETL telemetry; `—` marks not-computable values:
+
+![Per-job ETL statistics telemetry panels](screenshots/statistics-showcase.png)
+
+**Profile** — per-column data-quality metrics and findings for a chosen table:
+
+![Table profile with per-column data-quality metrics and findings](screenshots/profile-showcase.png)
 
 ---
 
@@ -519,7 +547,7 @@ Future ideas only — none of these are implemented yet:
 
 - Composite and multi-join transformation support; `RIGHT`/`FULL` joins;
   post-join `WHERE`.
-- Additional data-source integrations and adapters.
-- Richer UI: captured screenshots and optional charts.
+- Additional data-source integrations and adapters (dbt, ADF, live DB connectors).
+- Richer UI: optional charts and trend views.
 - Configurable thresholds and per-job row-loss tolerances; `--output json` on the
   CLI.

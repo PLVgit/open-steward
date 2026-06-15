@@ -10,8 +10,8 @@ endpoint (added alongside this page; it reuses the `dq_profiler` service and
 returns the table profile plus its data-quality findings).
 
 For the product overview, architecture, and a full demo walkthrough, see the
-[root README](../README.md). Screenshots of each page are captured per the guide
-in [`docs/screenshots/`](../docs/screenshots/README.md).
+[root README](../README.md). Screenshots of each page live in
+[`docs/screenshots/`](../docs/screenshots/README.md).
 
 The graph is rendered with **[`@xyflow/react`](https://reactflow.dev)** (React
 Flow v12 — the current, actively maintained package; the older `reactflow` v11

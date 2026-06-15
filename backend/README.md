@@ -14,7 +14,7 @@ pip install -e ".[dev]"
 open-steward list --file demo_data/demo_config.csv
 ```
 
-> **Windows / PATH note:** If `open-steward` is not found after install, either add the Python scripts directory to your PATH or invoke the tool as `python -m app.cli` from the `backend/` directory.
+> **PATH note:** If `open-steward` is not found after install, either add the Python scripts directory to your PATH or invoke the tool as a module from the `backend/` directory: `python -m app.cli …` (or `py -m app.cli …` on Windows).
 
 ---
 
