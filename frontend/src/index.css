@@ -5,39 +5,42 @@
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 0 0% 9%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+    --card-foreground: 0 0% 9%;
+    --primary: 142 72% 38%;
+    --primary-foreground: 0 0% 100%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 0 0% 95%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 80% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 88%;
+    --input: 0 0% 88%;
+    --ring: 142 72% 38%;
+    --radius: 0.25rem;
   }
 
+  /* Primary theme: a black/white industrial monitoring console with a single
+     neon-green accent. Near-true-black surfaces, crisp neutral borders, high
+     contrast — closer to an operational data-platform tool than a SaaS app. */
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --background: 0 0% 4%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 7.5%;
+    --card-foreground: 0 0% 96%;
+    --primary: 142 84% 52%;
+    --primary-foreground: 0 0% 5%;
+    --muted: 0 0% 13%;
+    --muted-foreground: 0 0% 62%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 97%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 18%;
+    --input: 0 0% 22%;
+    --ring: 142 84% 52%;
   }
 }
 
@@ -47,5 +50,97 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Flat black base, a faint technical grid, and a single restrained neon
+       glow in the top corner (echoing the accent without coloring the UI). */
+    background-image:
+      radial-gradient(40rem 26rem at 100% -8%, hsl(142 84% 52% / 0.06), transparent 70%),
+      linear-gradient(hsl(0 0% 100% / 0.022) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(0 0% 100% / 0.022) 1px, transparent 1px);
+    background-size: 100% 100%, 40px 40px, 40px 40px;
+    background-attachment: fixed;
+    font-feature-settings: "tnum" 0;
   }
+}
+
+@layer components {
+  .glass-panel {
+    @apply border bg-card/85 backdrop-blur-md;
+  }
+
+  /* An inset sub-surface inside a Panel (one notch darker than the frame). */
+  .surface-inset {
+    @apply rounded-sm border border-border bg-background/60;
+  }
+
+  /* Console eyebrow / kicker label — uppercase, wide-tracked, mono-ish. */
+  .eyebrow {
+    @apply text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground;
+  }
+
+  /* Mono technical meta text (session ids, timers, channel labels). */
+  .techmeta {
+    @apply font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground;
+  }
+
+  .gradient-text {
+    background-image: linear-gradient(92deg, hsl(142 84% 60%), hsl(160 80% 50%));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* ── React Flow theming ────────────────────────────────────────────────────── */
+.react-flow__controls {
+  border-radius: 0.25rem;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 8px 24px -12px rgb(0 0 0 / 0.8);
+}
+.react-flow__controls-button {
+  background: hsl(var(--card));
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+.react-flow__controls-button:hover {
+  background: hsl(var(--accent));
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+.react-flow__attribution {
+  background: transparent;
+  opacity: 0.35;
+  font-size: 9px;
+}
+.react-flow__attribution a {
+  color: hsl(var(--muted-foreground));
+}
+.react-flow__minimap {
+  border-radius: 0.25rem;
+  border: 1px solid hsl(var(--border));
+  overflow: hidden;
+}
+
+/* Edge labels fade out when zoomed out, to keep the canvas readable. */
+.react-flow__edge .react-flow__edge-textwrapper {
+  transition: opacity 0.15s ease;
+}
+.os-hide-edge-labels .react-flow__edge-textwrapper {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Slim, themed scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 9999px;
 }

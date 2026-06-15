@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, BarChart3, Loader2 } from "lucide-react";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Panel, PanelBody, PanelHeader } from "@/components/ui/panel";
 import { api, ApiError } from "@/lib/api";
 import { boolText, dash, pct, summarizeStatistics } from "@/lib/statistics";
+import { cn } from "@/lib/utils";
 import { useConfig } from "@/context/ConfigContext";
 import type { JobStatistics } from "@/lib/types";
 
@@ -21,23 +24,31 @@ function Metric({
   tone?: "amber" | "red";
 }) {
   const toneClass =
-    tone === "amber" ? "text-amber-500" : tone === "red" ? "text-destructive" : "";
+    tone === "amber" ? "text-amber-300" : tone === "red" ? "text-destructive" : "text-foreground";
   return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`font-mono text-sm ${toneClass}`}>{value}</div>
+    <div className="surface-inset px-3 py-2">
+      {/* label then value: the test reads label.nextElementSibling as the value */}
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </div>
+      <div className={cn("mt-1 font-mono text-sm font-medium tabular-nums", toneClass)}>{value}</div>
     </div>
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: number }) {
+function SummaryCard({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
-    <Card>
-      <CardContent className="py-4">
-        <div className="text-2xl font-semibold">{value}</div>
-        <div className="text-xs text-muted-foreground">{label}</div>
-      </CardContent>
-    </Card>
+    <Panel>
+      <PanelBody className="py-4">
+        {/* value then label: the test reads label.previousElementSibling as the value */}
+        <div className={cn("font-mono text-3xl font-bold tabular-nums tracking-tight", tone)}>
+          {value}
+        </div>
+        <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          {label}
+        </div>
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -71,40 +82,63 @@ export function StatisticsPage() {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>ETL Statistics</CardTitle>
-          <CardDescription>
+      <div className="flex items-start gap-3">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-sm border border-border bg-card text-primary">
+          <BarChart3 className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="eyebrow">ETL Telemetry</p>
+          <h1 className="text-xl font-bold uppercase tracking-tight">Statistics</h1>
+          <p className="techmeta mt-1 normal-case">
             Per-job source/target metrics for{" "}
-            <code className="font-mono">{configFile}</code>. <span className="font-mono">—</span>{" "}
-            means the value is not computable or the data is missing (a missing source/target
-            table, or no primary key) — it does not mean zero.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {state.state === "loading" && (
-            <p className="text-sm text-muted-foreground">Loading statistics…</p>
-          )}
-          {state.state === "error" && (
-            <p className="text-sm text-destructive" role="alert">
-              {state.message}
-            </p>
-          )}
-          {state.state === "ok" && stats.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No enabled jobs with statistics.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+            <code className="text-foreground/80">{configFile}</code> ·{" "}
+            <span className="font-mono">—</span> means not computable (missing table or key), not
+            zero
+          </p>
+        </div>
+      </div>
+
+      {state.state === "loading" && (
+        <Panel>
+          <PanelBody className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading statistics…
+          </PanelBody>
+        </Panel>
+      )}
+      {state.state === "error" && (
+        <Panel accent="error">
+          <PanelBody className="flex items-center gap-2 text-sm text-destructive" role="alert">
+            <AlertTriangle className="h-4 w-4 shrink-0" /> {state.message}
+          </PanelBody>
+        </Panel>
+      )}
+      {state.state === "ok" && stats.length === 0 && (
+        <Panel>
+          <PanelBody className="py-8 text-center text-sm text-muted-foreground">
+            No enabled jobs with statistics.
+          </PanelBody>
+        </Panel>
+      )}
 
       {state.state === "ok" && stats.length > 0 && (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <SummaryCard label="jobs with statistics" value={summary.total} />
-            <SummaryCard label="jobs with row loss" value={summary.withRowLoss} />
-            <SummaryCard label="jobs with missing data" value={summary.withMissingData} />
-            <SummaryCard label="jobs with PK issues" value={summary.withPkIssues} />
+            <SummaryCard
+              label="jobs with row loss"
+              value={summary.withRowLoss}
+              tone={summary.withRowLoss > 0 ? "text-amber-300" : undefined}
+            />
+            <SummaryCard
+              label="jobs with missing data"
+              value={summary.withMissingData}
+              tone={summary.withMissingData > 0 ? "text-muted-foreground" : undefined}
+            />
+            <SummaryCard
+              label="jobs with PK issues"
+              value={summary.withPkIssues}
+              tone={summary.withPkIssues > 0 ? "text-destructive" : undefined}
+            />
           </div>
 
           {stats.map((s) => {
@@ -113,32 +147,26 @@ export function StatisticsPage() {
               (s.primary_key_null_count ?? 0) > 0 ||
               (s.primary_key_duplicate_count ?? 0) > 0;
             return (
-              <Card key={s.config_key}>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    <span className="font-mono">{s.config_key}</span>{" "}
-                    <span className="font-normal text-muted-foreground">
-                      — {s.pipeline_name}
+              <Panel key={s.config_key} accent={pkIssue ? "error" : rowLoss ? "warning" : "none"}>
+                <PanelHeader>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="font-mono text-sm font-semibold text-foreground">
+                      {s.config_key}
                     </span>
-                  </CardTitle>
-                  <CardDescription className="font-mono text-xs">
+                    <span className="text-sm text-muted-foreground">— {s.pipeline_name}</span>
+                    {rowLoss && <Badge variant="warning">row loss</Badge>}
+                    {pkIssue && <Badge variant="error">pk issue</Badge>}
+                  </div>
+                  <div className="techmeta shrink-0 normal-case">
                     {s.source_table} → {s.target_table}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
+                  </div>
+                </PanelHeader>
+                <PanelBody>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                     <Metric label="source_count" value={dash(s.source_count)} />
                     <Metric label="target_count" value={dash(s.target_count)} />
-                    <Metric
-                      label="lost_rows"
-                      value={dash(s.lost_rows)}
-                      tone={rowLoss ? "amber" : undefined}
-                    />
-                    <Metric
-                      label="loss_pct"
-                      value={pct(s.loss_pct)}
-                      tone={rowLoss ? "amber" : undefined}
-                    />
+                    <Metric label="lost_rows" value={dash(s.lost_rows)} tone={rowLoss ? "amber" : undefined} />
+                    <Metric label="loss_pct" value={pct(s.loss_pct)} tone={rowLoss ? "amber" : undefined} />
                     <Metric label="target_empty" value={boolText(s.target_empty)} />
                     <Metric label="primary_key" value={s.primary_key ?? "—"} />
                     <Metric
@@ -157,14 +185,8 @@ export function StatisticsPage() {
                       tone={(s.primary_key_duplicate_count ?? 0) > 0 ? "red" : undefined}
                     />
                   </div>
-                  {(rowLoss || pkIssue) && (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      {rowLoss && "Row loss detected. "}
-                      {pkIssue && "Primary-key quality issue detected."}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
+                </PanelBody>
+              </Panel>
             );
           })}
         </>
