@@ -1,20 +1,21 @@
-# Showcase Testing Guide
+# Open Steward — Showcase Walkthrough
 
-A synthetic showcase dataset that exercises **all** of Open Steward's analysis
-capabilities — structural checks, SQL risk analysis, source↔target
-reconciliation, filter-aware and join-aware transformation reconciliation, and
-data-quality profiling — through the CLI, the API, and the UI.
+A reproducible, synthetic showcase demo designed to exercise **all** of Open
+Steward's analysis capabilities — structural checks, SQL risk analysis,
+source↔target reconciliation, filter-aware and join-aware transformation
+reconciliation, and data-quality profiling — through the CLI, the API, and the UI.
 
 The data is entirely synthetic (fake orders/customers/products), uses dedicated
-`showcase_*` table namespaces so it never collides with the existing demo, and
-is small (≈4–12 rows per source table) but deliberately constructed so every
-row-count causality is predictable.
+`showcase_*` table namespaces so it stands on its own, and is small (≈4–12 rows
+per source table) but deliberately constructed so every row-count causality is
+predictable — which makes it ideal for a guided demo or a portfolio screenshot.
 
-> Nothing here changes product behavior. It is a demo/testing asset only.
+> It runs through the same engine, CLI, API, and UI as everything else — there is
+> no separate product mode. Follow it top to bottom for a complete tour.
 
 ---
 
-## Files created
+## What's in the showcase
 
 **Config** (in `backend/samples/`, selectable by the API and UI):
 
@@ -45,13 +46,11 @@ row-count causality is predictable.
 target snapshot on purpose**, so reconciliation skips them and they contribute
 only SQL findings.)
 
-No backend or frontend code was changed.
-
 ---
 
 ## How to run
 
-### Backend tests (unaffected by the showcase)
+### Optional — verify your setup
 
 ```bash
 cd backend
@@ -69,7 +68,8 @@ open-steward stats   --file samples/showcase_config.csv --data-dir demo_data
 open-steward profile --table showcase_staging.orders_loaded --data-dir demo_data
 ```
 
-> If `open-steward` is not on PATH, use `python -m app.cli …` from `backend/`.
+> If the `open-steward` CLI isn't on PATH, run it as a module from `backend/`:
+> `python -m app.cli …` (or `py -m app.cli …` on Windows).
 
 ### Backend server + API
 
@@ -113,6 +113,46 @@ needed). Every page then reflects the showcase.
   jobs whose targets have no snapshot.
 - **Profile** — type `showcase_staging.orders_loaded` to see the data-quality
   findings.
+
+### Graph
+
+`showcase_raw.orders` and `showcase_raw.products` fan out left→right into the
+staging and mart lanes. Edge labels are hidden by default; hover or click to
+reveal them.
+
+![Showcase dependency graph in source, staging and mart lanes](screenshots/graph-showcase.png)
+
+Click an edge to inspect a single dependency (config key, source, target), or a
+table to inspect its namespace and dependency counts:
+
+| Edge inspector | Table inspector |
+|---|---|
+| ![Selected dependency edge showing its config key, source and target](screenshots/graph-inspector-edge-showcase.png) | ![Selected table showing its namespace and dependency counts](screenshots/graph-inspector-node-showcase.png) |
+
+### Findings
+
+With `showcase_config.csv` and reconciliation enabled, the transformation-aware
+findings appear alongside structural and SQL findings:
+
+![Findings showing transformation-aware reconciliation results](screenshots/findings-transformations-showcase.png)
+
+Filter to **Errors** to isolate `cross_join`, `null_primary_key`, and
+`duplicate_primary_key`:
+
+![Findings filtered to error-severity issues](screenshots/findings-errors-showcase.png)
+
+### Statistics
+
+Per-job row counts and primary-key metrics; the three SQL-risk-only jobs without a
+target snapshot show `—`:
+
+![Per-job ETL statistics for the showcase config](screenshots/statistics-showcase.png)
+
+### Profile
+
+`showcase_staging.orders_loaded` surfaces the kitchen-sink data-quality findings:
+
+![Profile of showcase_staging.orders_loaded with data-quality findings](screenshots/profile-showcase.png)
 
 ---
 
@@ -173,15 +213,18 @@ Exit code **1**. Produces:
 
 ---
 
-## Suggested screenshots for GitHub
+## Showcase screenshots
 
-Capture these against `showcase_config.csv` (save under `docs/screenshots/`):
+These are captured against `showcase_config.csv` and live under
+`docs/screenshots/` (used throughout this guide and the root README):
 
-1. **Graph** — `showcase_config.csv` dependency graph (raw → staging/mart).
-2. **Findings** — filtered to **Errors** (shows `cross_join`,
-   `null_primary_key`, `duplicate_primary_key`), and the full list showing the
-   join transformation findings.
-3. **Statistics** — the per-job table, highlighting the `—` rows (not-computable)
-   next to real counts.
-4. **Profile** — `showcase_staging.orders_loaded` with the `all_nulls` /
-   `high_null_rate` / `high_empty_string_rate` / `constant_column` findings.
+| File | Page / view |
+|---|---|
+| `overview-showcase.png` | Overview — connection status + job roster |
+| `graph-showcase.png` | Graph — source → staging → mart lanes |
+| `graph-inspector-edge-showcase.png` | Graph — selected-edge inspector |
+| `graph-inspector-node-showcase.png` | Graph — selected-table inspector |
+| `findings-transformations-showcase.png` | Findings — transformation-aware results |
+| `findings-errors-showcase.png` | Findings — filtered to error severity |
+| `statistics-showcase.png` | Statistics — per-job ETL telemetry |
+| `profile-showcase.png` | Profile — `showcase_staging.orders_loaded` |
