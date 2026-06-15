@@ -38,3 +38,6 @@ frontend/node_modules/
 # Secrets
 .env
 *.env
+
+# Claude Code working file (internal, not part of the public project)
+CLAUDE.md
