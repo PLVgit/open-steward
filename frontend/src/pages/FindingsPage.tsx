@@ -8,6 +8,7 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { api, ApiError } from "@/lib/api";
 import {
   filterBySeverity,
+  sortBySeverity,
   summarizeFindings,
   type SeverityFilter,
 } from "@/lib/findings";
@@ -128,7 +129,11 @@ export function FindingsPage() {
 
   const findings = state.state === "ok" ? state.findings : [];
   const summary = useMemo(() => summarizeFindings(findings), [findings]);
-  const visible = useMemo(() => filterBySeverity(findings, filter), [findings, filter]);
+  // Errors surface first — matches the CLI's severity-grouped output.
+  const visible = useMemo(
+    () => sortBySeverity(filterBySeverity(findings, filter)),
+    [findings, filter],
+  );
 
   return (
     <div className="space-y-4">

@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import typer
@@ -13,6 +14,17 @@ from app.services.etl_statistics import compute_job_statistics
 from app.services.finding_detector import detect_findings
 from app.services.graph_builder import build_graph, detect_cycles, get_execution_order
 from app.services.reconciliation_engine import reconcile_jobs
+
+# On Windows, output redirected to a file/pipe defaults to the legacy locale
+# codepage (e.g. cp1252), which cannot encode the arrows/checkmarks in CLI
+# output and crashes with UnicodeEncodeError. Force UTF-8 — a no-op where the
+# stream is already UTF-8 (interactive consoles, Linux/macOS, CI).
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
 
 app = typer.Typer(
     name="open-steward",

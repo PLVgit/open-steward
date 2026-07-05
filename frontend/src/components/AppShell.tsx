@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   Activity,
@@ -22,6 +23,17 @@ const NAV = [
 
 export function AppShell() {
   const { configFile, setConfigFile } = useConfig();
+  // Draft-then-commit: the config only applies on Enter/blur, so pages don't
+  // refetch (and flash 404 errors) on every keystroke while a filename is typed.
+  const [draft, setDraft] = useState(configFile);
+
+  useEffect(() => setDraft(configFile), [configFile]);
+
+  const commitDraft = () => {
+    const next = draft.trim();
+    if (next && next !== configFile) setConfigFile(next);
+    else setDraft(configFile); // revert an empty or unchanged draft
+  };
 
   return (
     <div className="flex min-h-screen text-foreground">
@@ -108,8 +120,13 @@ export function AppShell() {
               <span className="eyebrow border-r border-border bg-card px-2.5 py-2">Config</span>
               <input
                 aria-label="Config file"
-                value={configFile}
-                onChange={(e) => setConfigFile(e.target.value)}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commitDraft}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitDraft();
+                  else if (e.key === "Escape") setDraft(configFile);
+                }}
                 className="h-9 w-60 bg-transparent px-3 font-mono text-xs text-foreground outline-none"
               />
             </label>

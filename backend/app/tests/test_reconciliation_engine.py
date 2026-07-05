@@ -225,6 +225,19 @@ def test_no_primary_key_skips_pk_checks(tmp_path):
     assert not any(f.finding_type in ("duplicate_primary_key", "null_primary_key") for f in findings)
 
 
+def test_misconfigured_primary_key_skips_pk_checks(tmp_path):
+    # The configured PK column doesn't exist in the target snapshot. That must
+    # not break the whole report — PK checks are skipped, other findings stand.
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_2)
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk="nonexistent_col")], ds)
+    types = [f.finding_type for f in findings]
+    assert "null_primary_key" not in types
+    assert "duplicate_primary_key" not in types
+    assert "row_count_drop" in types  # the 3 → 2 drop is still reported
+
+
 # ── finding metadata ──────────────────────────────────────────────────────────
 
 def test_affected_job_set_correctly(tmp_path):

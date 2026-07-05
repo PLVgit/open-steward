@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
 interface PipelineFlowProps {
   nodes: Node[];
   edges: Edge[];
+  /** Optional config_key → pipeline_name map to enrich the edge inspector. */
+  jobNames?: Map<string, string>;
 }
 
 // Styling per table category. `mini` is the solid color used by the minimap.
@@ -147,7 +149,7 @@ type Selection =
  * Hovering an edge previews its key; selecting an edge or a node reveals the
  * relevant keys and opens an inspector panel with the dependency details.
  */
-export function PipelineFlow({ nodes, edges }: PipelineFlowProps) {
+export function PipelineFlow({ nodes, edges, jobNames }: PipelineFlowProps) {
   const [selection, setSelection] = useState<Selection>(null);
   const [hoverEdgeId, setHoverEdgeId] = useState<string | null>(null);
 
@@ -213,11 +215,13 @@ export function PipelineFlow({ nodes, edges }: PipelineFlowProps) {
       if (!e) return null;
       const configKey =
         (e.data as { configKey?: string } | undefined)?.configKey ?? String(e.label ?? "");
+      const pipelineName = jobNames?.get(configKey);
       return {
         kind: "edge" as const,
         title: "Dependency",
         rows: [
           { label: "config_key", value: configKey },
+          ...(pipelineName ? [{ label: "pipeline", value: pipelineName }] : []),
           { label: "source", value: e.source },
           { label: "target", value: e.target },
         ],
@@ -240,7 +244,7 @@ export function PipelineFlow({ nodes, edges }: PipelineFlowProps) {
       };
     }
     return null;
-  }, [selection, edges, nodes, degree]);
+  }, [selection, edges, nodes, degree, jobNames]);
 
   return (
     <div className="h-[calc(100vh-11rem)] min-h-[540px] w-full overflow-hidden rounded-sm border border-border bg-card/50">

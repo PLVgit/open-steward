@@ -85,6 +85,9 @@ def _has_select_star(query: exp.Expression) -> bool:
         for projection in select.expressions:
             if isinstance(projection, exp.Star):
                 return True
+            # A qualified star (SELECT t.*) parses as a Column wrapping a Star.
+            if isinstance(projection, exp.Column) and isinstance(projection.this, exp.Star):
+                return True
     return False
 
 

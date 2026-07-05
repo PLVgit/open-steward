@@ -165,6 +165,27 @@ def test_primary_key_null_pct_divide_by_zero_guard():
     assert s.primary_key_null_pct == 0.0
 
 
+def test_misconfigured_primary_key_yields_none_metrics():
+    # The PK column doesn't exist in the target snapshot. That is "not
+    # computable" (None), not an error that fails the whole response.
+    class RaisingPkDataSource(FakeDataSource):
+        def get_null_count(self, table_name: str, column: str) -> int:
+            raise ValueError(f"Column '{column}' does not exist in the table.")
+
+    ds = RaisingPkDataSource({
+        "raw.orders": {"rows": 10},
+        "staging.orders": {"rows": 8},
+    })
+    s = compute_job_statistics([_job(pk="missing_col")], ds)[0]
+    assert s.primary_key == "missing_col"
+    assert s.primary_key_null_count is None
+    assert s.primary_key_null_pct is None
+    assert s.primary_key_duplicate_count is None
+    # Non-PK metrics are unaffected.
+    assert s.source_count == 10
+    assert s.target_count == 8
+
+
 # ── missing tables ──────────────────────────────────────────────────────────────
 
 def test_missing_source_yields_none_and_keeps_job():

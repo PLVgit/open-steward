@@ -4,6 +4,8 @@ from pathlib import Path
 from app.models.pipeline_job import PipelineJob
 
 REQUIRED_COLUMNS = {"config_key", "pipeline_name", "enabled", "source_table", "target_table"}
+# Deterministic field order for per-row validation error messages.
+_REQUIRED_ORDER = ("config_key", "pipeline_name", "enabled", "source_table", "target_table")
 _TRUTHY = {"true", "1", "yes"}
 
 
@@ -27,10 +29,26 @@ class CsvAdapter:
                     f"CSV is missing required columns: {sorted(missing)}"
                 )
 
-            return [self._parse_row(row) for row in reader]
+            # Header is line 1, so data rows start at line 2.
+            return [self._parse_row(row, line) for line, row in enumerate(reader, start=2)]
 
-    def _parse_row(self, row: dict) -> PipelineJob:
-        raw_order = row.get("execution_order", "").strip()
+    def _parse_row(self, row: dict, line: int) -> PipelineJob:
+        # DictReader yields None for cells missing from short rows. Required
+        # fields must be present and non-empty, so a malformed row fails with a
+        # clear message instead of an AttributeError deep inside parsing.
+        for field in _REQUIRED_ORDER:
+            value = row.get(field)
+            if value is None or not value.strip():
+                raise ValueError(f"Row {line}: missing value for required column '{field}'.")
+
+        raw_order = (row.get("execution_order") or "").strip()
+        try:
+            execution_order = int(raw_order) if raw_order else None
+        except ValueError:
+            raise ValueError(
+                f"Row {line}: invalid execution_order {raw_order!r}; expected an integer."
+            ) from None
+
         return PipelineJob(
             config_key=row["config_key"],
             pipeline_name=row["pipeline_name"],
@@ -38,7 +56,7 @@ class CsvAdapter:
             source_table=row["source_table"],
             target_table=row["target_table"],
             sql_query=row.get("sql_query") or None,
-            execution_order=int(raw_order) if raw_order else None,
+            execution_order=execution_order,
             primary_key=row.get("primary_key") or None,
             load_type=row.get("load_type") or None,
         )

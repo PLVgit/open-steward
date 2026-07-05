@@ -78,7 +78,15 @@ def _reconcile_job(job: PipelineJob, ds: DataSource) -> list[ValidationFinding]:
         findings.extend(_row_change_findings(job, ds, source_count, target_count))
 
     if job.primary_key:
-        null_count = ds.get_null_count(job.target_table, job.primary_key)
+        try:
+            null_count = ds.get_null_count(job.target_table, job.primary_key)
+            dup_count = ds.get_duplicate_key_count(job.target_table, job.primary_key)
+        except Exception:
+            # A misconfigured primary key (e.g. the column is missing from the
+            # target snapshot) must not break the rest of the report — skip the
+            # PK checks for this job and let the other findings stand.
+            null_count = 0
+            dup_count = 0
         if null_count > 0:
             # Guard against division by zero for empty targets (null_count > 0 implies rows exist,
             # but the explicit guard keeps the intent clear).
@@ -99,7 +107,6 @@ def _reconcile_job(job: PipelineJob, ds: DataSource) -> list[ValidationFinding]:
                 ),
             ))
 
-        dup_count = ds.get_duplicate_key_count(job.target_table, job.primary_key)
         if dup_count > 0:
             findings.append(ValidationFinding(
                 finding_type="duplicate_primary_key",

@@ -43,6 +43,19 @@ def test_select_star_in_subquery_flagged():
     assert any(f.finding_type == "select_star" for f in findings)
 
 
+def test_qualified_select_star_flagged():
+    findings = analyze_sql([_job("SELECT o.* FROM raw.orders o")])
+    assert any(f.finding_type == "select_star" for f in findings)
+
+
+def test_qualified_select_star_in_join_flagged():
+    findings = analyze_sql([_job(
+        "SELECT o.*, c.customer_name FROM raw.orders o "
+        "INNER JOIN raw.customers c ON o.customer_id = c.customer_id"
+    )])
+    assert any(f.finding_type == "select_star" for f in findings)
+
+
 # ── explicit_cast ─────────────────────────────────────────────────────────────
 
 def test_cast_warning():

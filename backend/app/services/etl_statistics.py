@@ -54,9 +54,17 @@ def _compute_job(job: PipelineJob, ds: DataSource) -> JobStatistics:
     pk_null_pct: float | None = None
     pk_duplicate_count: int | None = None
     if job.primary_key and target_count is not None:
-        pk_null_count = ds.get_null_count(job.target_table, job.primary_key)
-        pk_null_pct = round(pk_null_count / target_count * 100, 1) if target_count > 0 else 0.0
-        pk_duplicate_count = ds.get_duplicate_key_count(job.target_table, job.primary_key)
+        try:
+            pk_null_count = ds.get_null_count(job.target_table, job.primary_key)
+            pk_null_pct = round(pk_null_count / target_count * 100, 1) if target_count > 0 else 0.0
+            pk_duplicate_count = ds.get_duplicate_key_count(job.target_table, job.primary_key)
+        except Exception:
+            # A misconfigured primary key (e.g. the column is missing from the
+            # target snapshot) is "not computable", not an error — report None
+            # rather than failing the whole statistics response.
+            pk_null_count = None
+            pk_null_pct = None
+            pk_duplicate_count = None
 
     return JobStatistics(
         config_key=job.config_key,

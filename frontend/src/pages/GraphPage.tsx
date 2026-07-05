@@ -16,10 +16,12 @@ type State =
 export function GraphPage() {
   const { configFile } = useConfig();
   const [state, setState] = useState<State>({ state: "loading" });
+  const [jobNames, setJobNames] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
     setState({ state: "loading" });
+    setJobNames(new Map());
     api
       .getGraph(configFile)
       .then((graph) => {
@@ -32,6 +34,16 @@ export function GraphPage() {
             ? err.detail
             : "Could not reach the backend. Is it running on http://localhost:8000?";
         setState({ state: "error", message });
+      });
+    // Pipeline names enrich the edge inspector. Failures are non-fatal — the
+    // inspector simply omits the name.
+    api
+      .listPipelines(configFile)
+      .then((jobs) => {
+        if (!cancelled) setJobNames(new Map(jobs.map((j) => [j.config_key, j.pipeline_name])));
+      })
+      .catch(() => {
+        /* inspector shows config_key only */
       });
     return () => {
       cancelled = true;
@@ -101,7 +113,7 @@ export function GraphPage() {
       )}
 
       {state.state === "ok" && elements && !isEmpty && (
-        <PipelineFlow nodes={elements.nodes} edges={elements.edges} />
+        <PipelineFlow nodes={elements.nodes} edges={elements.edges} jobNames={jobNames} />
       )}
     </div>
   );

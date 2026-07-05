@@ -4,7 +4,7 @@
 
 `Python` · `FastAPI` · `DuckDB` · `sqlglot` · `NetworkX` · `Typer` — `React` · `TypeScript` · `React Flow`
 
-**Local-first** · **Aggregate-only analysis** · **CLI + REST API + UI** · **~290 tests** · **MIT licensed**
+**Local-first** · **Aggregate-only analysis** · **CLI + REST API + UI** · **300+ tests** · **MIT licensed**
 
 ![Open Steward pipeline dependency graph in the control-room UI](docs/screenshots/graph-showcase.png)
 
@@ -98,7 +98,7 @@ all-null, high-null-rate, constant-column, and high-empty-string findings.
 | **Backend** | Python 3.11+, FastAPI, Pydantic, Typer (CLI) |
 | **Analysis engines** | NetworkX (graph + execution order), sqlglot (SQL AST), DuckDB (aggregate queries over CSV/Parquet) |
 | **Frontend** | React, TypeScript, Vite, Tailwind, shadcn/ui, React Flow (`@xyflow/react`) |
-| **Quality** | pytest + Vitest (~290 tests), GitHub Actions CI |
+| **Quality** | pytest + Vitest (300+ tests), GitHub Actions CI |
 
 ---
 

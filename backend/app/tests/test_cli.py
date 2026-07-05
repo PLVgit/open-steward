@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -5,9 +8,32 @@ from typer.testing import CliRunner
 from app.cli import app
 
 runner = CliRunner()
-_SAMPLES = Path(__file__).parent.parent.parent / "samples"
+_BACKEND_DIR = Path(__file__).parent.parent.parent
+_SAMPLES = _BACKEND_DIR / "samples"
 _SAMPLE = str(_SAMPLES / "sample_config.csv")
 _CYCLE = str(_SAMPLES / "cycle_config.csv")
+
+
+def test_check_output_survives_legacy_encoding_redirect(tmp_path):
+    """Redirected output on Windows defaults to a legacy codepage (cp1252) that
+    cannot encode the arrows/checkmarks in CLI output. The CLI reconfigures its
+    streams to UTF-8, so this must not crash with UnicodeEncodeError."""
+    csv = tmp_path / "config.csv"
+    csv.write_text(
+        "config_key,pipeline_name,enabled,source_table,target_table,sql_query,load_type\n"
+        'etl_001,Load Orders,true,raw.orders,staging.orders,SELECT * FROM raw.orders,full\n',
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "app.cli", "check", "--file", str(csv)],
+        capture_output=True,
+        cwd=_BACKEND_DIR,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+        timeout=60,
+    )
+    assert b"UnicodeEncodeError" not in result.stderr
+    assert result.returncode == 0  # select_star is a warning, not an error
+    assert b"select_star" in result.stdout
 
 
 # ── check ─────────────────────────────────────────────────────────────────────

@@ -9,17 +9,32 @@ import type { GraphResponse } from "@/lib/types";
 // Mock the React Flow wrapper so tests don't mount the canvas (jsdom has no
 // layout measurement / ResizeObserver). We assert on node/edge counts instead.
 vi.mock("@/components/graph/PipelineFlow", () => ({
-  PipelineFlow: ({ nodes, edges }: { nodes: unknown[]; edges: unknown[] }) => (
+  PipelineFlow: ({
+    nodes,
+    edges,
+    jobNames,
+  }: {
+    nodes: unknown[];
+    edges: unknown[];
+    jobNames?: Map<string, string>;
+  }) => (
     <div data-testid="flow">
-      {nodes.length} nodes, {edges.length} edges
+      {nodes.length} nodes, {edges.length} edges, {jobNames?.size ?? 0} names
     </div>
   ),
 }));
 
-function mockGraphResponse(body: GraphResponse) {
+/** Serve the graph body from /graph/ and an optional job list from /pipelines/. */
+function mockGraphResponse(body: GraphResponse, jobs: unknown[] = []) {
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => body }),
+    vi.fn().mockImplementation((url: unknown) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => (String(url).includes("/pipelines/") ? jobs : body),
+      }),
+    ),
   );
 }
 
@@ -56,6 +71,14 @@ describe("GraphPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByTestId("flow")).toBeInTheDocument());
     expect(screen.getByTestId("flow")).toHaveTextContent("2 nodes, 1 edges");
+  });
+
+  it("passes pipeline names to the flow for the edge inspector", async () => {
+    mockGraphResponse(DAG, [
+      { config_key: "etl_001", pipeline_name: "Load Orders", enabled: true },
+    ]);
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId("flow")).toHaveTextContent("1 names"));
   });
 
   it("shows an error message when the request fails", async () => {

@@ -32,8 +32,8 @@ and Node toolchain.
 
 ## 2. What Open Steward does today
 
-All of the following are implemented and covered by tests (242 backend tests,
-48 frontend tests):
+All of the following are implemented and covered by tests (251 backend tests,
+54 frontend tests):
 
 - **CSV-driven pipeline config ingestion** — parse a config CSV into typed
   `PipelineJob` objects.
@@ -517,7 +517,7 @@ and falls back safely otherwise. Current coverage:
   flagging differences.
 - A typed React + TypeScript frontend (Vite, Tailwind, shadcn/ui, React Flow) with
   a dev proxy and unit tests.
-- Strong test discipline: ~290 tests across backend and frontend, including pure
+- Strong test discipline: 300+ tests across backend and frontend, including pure
   unit tests for the analysis logic.
 - CI, an MIT license, and honest, verified documentation.
 
@@ -537,7 +537,7 @@ tests, docs).
 > SQL-config ETL pipelines, reconstructs dependencies, analyzes SQL risk with
 > sqlglot, and explains row-count changes through filter- and join-aware
 > reconciliation over DuckDB — exposed through a typer CLI, a FastAPI service, and
-> a typed React/TypeScript UI, with ~290 tests and CI.
+> a typed React/TypeScript UI, with 300+ tests and CI.
 
 ---
 

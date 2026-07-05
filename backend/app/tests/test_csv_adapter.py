@@ -84,3 +84,34 @@ def test_extra_columns_are_ignored(tmp_path):
     jobs = CsvAdapter(path).load()
     assert len(jobs) == 1
     assert jobs[0].config_key == "etl_001"
+
+
+def test_short_row_raises_clear_error(tmp_path):
+    # A row with fewer cells than the header must fail with a clear message,
+    # not an AttributeError from a None cell.
+    path = _write(tmp_path, f"{_HEADERS}\netl_001,Load Orders,true")
+    with pytest.raises(ValueError, match=r"Row 2.*source_table"):
+        CsvAdapter(path).load()
+
+
+def test_empty_required_value_raises_clear_error(tmp_path):
+    path = _write(tmp_path, f"{_HEADERS}\netl_001,,true,src,tgt,,,,")
+    with pytest.raises(ValueError, match=r"Row 2.*pipeline_name"):
+        CsvAdapter(path).load()
+
+
+def test_error_reports_correct_row_number(tmp_path):
+    rows = "\n".join([
+        _HEADERS,
+        "etl_001,A,true,src,tgt,,,,",
+        "etl_002,,true,src,tgt,,,,",
+    ])
+    path = _write(tmp_path, rows)
+    with pytest.raises(ValueError, match=r"Row 3.*pipeline_name"):
+        CsvAdapter(path).load()
+
+
+def test_invalid_execution_order_raises_clear_error(tmp_path):
+    path = _write(tmp_path, f"{_HEADERS}\netl_001,A,true,src,tgt,,abc,,")
+    with pytest.raises(ValueError, match=r"Row 2.*execution_order"):
+        CsvAdapter(path).load()
