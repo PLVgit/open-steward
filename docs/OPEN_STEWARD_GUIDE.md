@@ -34,7 +34,7 @@ and Node toolchain.
 ## 2. What Open Steward does today
 
 All of the following are implemented and covered by tests (303 backend tests,
-54 frontend tests):
+60 frontend tests):
 
 - **CSV-driven pipeline config ingestion** — parse a config CSV into typed
   `PipelineJob` objects.

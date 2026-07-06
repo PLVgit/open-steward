@@ -150,6 +150,24 @@ describe("ProfilePage", () => {
     );
   });
 
+  it("pre-selects the table from the ?table= query param", async () => {
+    const fetchMock = mockProfile(SAMPLE);
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <MemoryRouter initialEntries={["/profile?table=staging.customers"]}>
+        <ConfigProvider>
+          <ProfilePage />
+        </ConfigProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/profile/?table=staging.customers&data_dir=.",
+      ),
+    );
+    expect(screen.getByLabelText("Table name")).toHaveValue("staging.customers");
+  });
+
   it("shows an error state when the table is not found", async () => {
     vi.stubGlobal(
       "fetch",

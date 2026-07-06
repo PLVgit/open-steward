@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 
+import { ErrorState } from "@/components/ui/error-state";
 import { Panel, PanelBody, PanelHeader } from "@/components/ui/panel";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusDot } from "@/components/ui/status-dot";
 import { api, ApiError } from "@/lib/api";
+import { summarizeFindings, type FindingsSummary } from "@/lib/findings";
+import { summarizeStatistics, type StatisticsSummary } from "@/lib/statistics";
+import { useCountUp } from "@/lib/useCountUp";
 import { useConfig } from "@/context/ConfigContext";
 import type { PipelineJob } from "@/lib/types";
 
@@ -26,7 +32,7 @@ function Tile({
   badge?: ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-sm border border-white/10 bg-white px-4 py-3.5 text-zinc-950 shadow-[0_10px_30px_-18px_rgb(0_0_0/0.9)]">
+    <div className="panel-in relative overflow-hidden rounded-sm border border-white/10 bg-white px-4 py-3.5 text-zinc-950 shadow-[0_10px_30px_-18px_rgb(0_0_0/0.9)]">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
           {label}
@@ -43,10 +49,15 @@ function Tile({
   );
 }
 
+/** Numeric tile value that counts up on mount (snaps under reduced motion). */
+function CountUpValue({ value }: { value: number }) {
+  return <>{useCountUp(value)}</>;
+}
+
 /** The single neon-green "headline status" tile (echoes the OPTIMAL card). */
 function StatusTile({ label, value, footer }: { label: string; value: string; footer: string }) {
   return (
-    <div className="relative overflow-hidden rounded-sm border border-primary/60 bg-primary/10 px-4 py-3.5 shadow-[0_0_34px_-12px_hsl(142_84%_52%/0.6)]">
+    <div className="panel-in relative overflow-hidden rounded-sm border border-primary/60 bg-primary/10 px-4 py-3.5 shadow-[0_0_34px_-12px_hsl(142_84%_52%/0.6)]">
       <span className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-primary/30 blur-2xl" />
       <div className="relative flex items-center justify-between">
         <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary/80">
@@ -64,13 +75,80 @@ function StatusTile({ label, value, footer }: { label: string; value: string; fo
   );
 }
 
+/** A linked signal readout inside the Signals panel. */
+function Signal({
+  label,
+  value,
+  to,
+  tone,
+}: {
+  label: string;
+  value: number | undefined;
+  to: string;
+  tone: "error" | "warning" | "info" | "healthy";
+}) {
+  const valueTone =
+    value === undefined
+      ? "text-muted-foreground"
+      : value > 0
+        ? tone === "error"
+          ? "text-destructive"
+          : tone === "warning"
+            ? "text-amber-300"
+            : "text-sky-300"
+        : "text-primary";
+  return (
+    <Link
+      to={to}
+      className="surface-inset group flex flex-col gap-1 px-3 py-2.5 transition-colors hover:border-primary/50 hover:bg-accent"
+    >
+      <span className="flex items-center justify-between">
+        <span className="eyebrow">{label}</span>
+        <StatusDot status={value === undefined ? "idle" : value > 0 ? tone : "healthy"} />
+      </span>
+      {value === undefined ? (
+        <Skeleton className="h-7 w-10" />
+      ) : (
+        <span className={`font-mono text-2xl font-bold tabular-nums leading-none ${valueTone}`}>
+          {value}
+        </span>
+      )}
+    </Link>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-5" aria-hidden>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-[104px]" />
+        ))}
+      </div>
+      <div className="grid gap-3 lg:grid-cols-3">
+        <Skeleton className="h-64 lg:col-span-2" />
+        <div className="space-y-3">
+          <Skeleton className="h-28" />
+          <Skeleton className="h-32" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function OverviewPage() {
   const { configFile } = useConfig();
   const [status, setStatus] = useState<Status>({ state: "loading" });
+  const [reloadKey, setReloadKey] = useState(0);
+  const [signals, setSignals] = useState<{
+    findings?: FindingsSummary;
+    stats?: StatisticsSummary;
+  }>({});
 
   useEffect(() => {
     let cancelled = false;
     setStatus({ state: "loading" });
+    setSignals({});
     api
       .listPipelines(configFile)
       .then((jobs) => {
@@ -84,10 +162,24 @@ export function OverviewPage() {
             : "Could not reach the backend. Is it running on http://localhost:8000?";
         setStatus({ state: "error", message });
       });
+    // Operational signals — independent, non-fatal fetches that turn the
+    // Overview into a real command center. Failures just leave the skeletons.
+    api
+      .getFindings(configFile, ".")
+      .then((fs) => {
+        if (!cancelled) setSignals((p) => ({ ...p, findings: summarizeFindings(fs) }));
+      })
+      .catch(() => {});
+    api
+      .getStatistics(configFile)
+      .then((st) => {
+        if (!cancelled) setSignals((p) => ({ ...p, stats: summarizeStatistics(st) }));
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [configFile]);
+  }, [configFile, reloadKey]);
 
   const counts = useMemo(() => {
     if (status.state !== "ok") return { total: 0, enabled: 0, disabled: 0 };
@@ -109,28 +201,25 @@ export function OverviewPage() {
       </div>
 
       {status.state === "loading" && (
-        <Panel>
-          <PanelBody className="flex items-center gap-2 text-sm text-muted-foreground">
+        <>
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Connecting…
-          </PanelBody>
-        </Panel>
+          </p>
+          <LoadingSkeleton />
+        </>
       )}
       {status.state === "error" && (
-        <Panel accent="error">
-          <PanelBody className="flex items-center gap-2 text-sm text-destructive" role="alert">
-            <AlertTriangle className="h-4 w-4 shrink-0" /> {status.message}
-          </PanelBody>
-        </Panel>
+        <ErrorState message={status.message} onRetry={() => setReloadKey((k) => k + 1)} />
       )}
 
       {status.state === "ok" && (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatusTile label="Pipeline Status" value="OPERATIONAL" footer="All systems nominal" />
-            <Tile label="Total Jobs" value={counts.total} footer="Configured ETLs" />
+            <Tile label="Total Jobs" value={<CountUpValue value={counts.total} />} footer="Configured ETLs" />
             <Tile
               label="Enabled"
-              value={counts.enabled}
+              value={<CountUpValue value={counts.enabled} />}
               footer={`${enabledPct}% of fleet`}
               badge={
                 counts.enabled > 0 ? (
@@ -140,8 +229,22 @@ export function OverviewPage() {
                 ) : undefined
               }
             />
-            <Tile label="Disabled" value={counts.disabled} footer="Paused pipelines" />
+            <Tile label="Disabled" value={<CountUpValue value={counts.disabled} />} footer="Paused pipelines" />
           </div>
+
+          <Panel>
+            <PanelHeader
+              eyebrow="Signals"
+              title="Issue overview"
+              right="findings · statistics"
+            />
+            <PanelBody className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Signal label="Errors" value={signals.findings?.error} to="/findings" tone="error" />
+              <Signal label="Warnings" value={signals.findings?.warning} to="/findings" tone="warning" />
+              <Signal label="Row loss" value={signals.stats?.withRowLoss} to="/statistics" tone="warning" />
+              <Signal label="PK issues" value={signals.stats?.withPkIssues} to="/statistics" tone="error" />
+            </PanelBody>
+          </Panel>
 
           <div className="grid gap-3 lg:grid-cols-3">
             {/* Configured-jobs roster — the "subject list" of the console. */}
@@ -195,7 +298,7 @@ export function OverviewPage() {
                 <PanelBody className="space-y-2">
                   <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                     <div
-                      className="h-full rounded-full bg-primary shadow-[0_0_10px] shadow-primary/50"
+                      className="h-full rounded-full bg-primary shadow-[0_0_10px] shadow-primary/50 transition-[width] duration-500"
                       style={{ width: `${enabledPct}%` }}
                     />
                   </div>

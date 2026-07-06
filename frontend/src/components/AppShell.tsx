@@ -21,19 +21,33 @@ const NAV = [
   { to: "/profile", label: "Profile", icon: FileSearch, end: false },
 ];
 
+// Bundled sample configs, offered as suggestions alongside recents.
+const KNOWN_CONFIGS = ["demo_config.csv", "showcase_config.csv", "sample_config.csv"];
+
 export function AppShell() {
-  const { configFile, setConfigFile } = useConfig();
+  const { configFile, setConfigFile, recentConfigs } = useConfig();
   // Draft-then-commit: the config only applies on Enter/blur, so pages don't
   // refetch (and flash 404 errors) on every keystroke while a filename is typed.
   const [draft, setDraft] = useState(configFile);
+  const [justApplied, setJustApplied] = useState(false);
 
   useEffect(() => setDraft(configFile), [configFile]);
 
   const commitDraft = () => {
     const next = draft.trim();
-    if (next && next !== configFile) setConfigFile(next);
-    else setDraft(configFile); // revert an empty or unchanged draft
+    if (next && next !== configFile) {
+      setConfigFile(next);
+      setJustApplied(true);
+      window.setTimeout(() => setJustApplied(false), 1400);
+    } else {
+      setDraft(configFile); // revert an empty or unchanged draft
+    }
   };
+
+  const suggestions = [
+    ...recentConfigs,
+    ...KNOWN_CONFIGS.filter((c) => !recentConfigs.includes(c)),
+  ];
 
   return (
     <div className="flex min-h-screen text-foreground">
@@ -116,10 +130,16 @@ export function AppShell() {
 
           <div className="flex items-center gap-3">
             <span className="techmeta hidden lg:inline">Scope</span>
-            <label className="flex items-center overflow-hidden rounded-sm border border-input bg-background focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/40">
+            <label
+              className={cn(
+                "flex items-center overflow-hidden rounded-sm border bg-background transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/40",
+                justApplied ? "border-primary ring-1 ring-primary/40" : "border-input",
+              )}
+            >
               <span className="eyebrow border-r border-border bg-card px-2.5 py-2">Config</span>
               <input
                 aria-label="Config file"
+                list="config-suggestions"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onBlur={commitDraft}
@@ -129,6 +149,16 @@ export function AppShell() {
                 }}
                 className="h-9 w-60 bg-transparent px-3 font-mono text-xs text-foreground outline-none"
               />
+              {justApplied && (
+                <span className="pr-2.5 font-mono text-[10px] font-bold uppercase tracking-wide text-primary">
+                  ✓
+                </span>
+              )}
+              <datalist id="config-suggestions">
+                {suggestions.map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
             </label>
           </div>
         </header>

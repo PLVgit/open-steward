@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Background,
   BackgroundVariant,
@@ -152,6 +153,17 @@ type Selection =
 export function PipelineFlow({ nodes, edges, jobNames }: PipelineFlowProps) {
   const [selection, setSelection] = useState<Selection>(null);
   const [hoverEdgeId, setHoverEdgeId] = useState<string | null>(null);
+  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
+
+  // Escape clears the selection (focus mode off) from anywhere on the page.
+  useEffect(() => {
+    if (!selection) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelection(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selection]);
 
   const degree = useMemo(() => {
     const m = new Map<string, { in: number; out: number }>();
@@ -170,24 +182,43 @@ export function PipelineFlow({ nodes, edges, jobNames }: PipelineFlowProps) {
     const ids = new Set<string>();
     if (hoverEdgeId) ids.add(hoverEdgeId);
     if (selection?.kind === "edge") ids.add(selection.id);
-    if (selection?.kind === "node") {
+    const focusNode = selection?.kind === "node" ? selection.id : hoverNodeId;
+    if (focusNode) {
       for (const e of edges) {
-        if (e.source === selection.id || e.target === selection.id) ids.add(e.id);
+        if (e.source === focusNode || e.target === focusNode) ids.add(e.id);
       }
     }
     return ids;
-  }, [edges, selection, hoverEdgeId]);
+  }, [edges, selection, hoverEdgeId, hoverNodeId]);
+
+  // Focus mode: when a node is selected, everything unrelated dims so its
+  // neighborhood reads instantly. Escape or clicking the canvas clears it.
+  const focusNodeIds = useMemo(() => {
+    if (selection?.kind !== "node") return null;
+    const ids = new Set<string>([selection.id]);
+    for (const e of edges) {
+      if (e.source === selection.id) ids.add(e.target);
+      if (e.target === selection.id) ids.add(e.source);
+    }
+    return ids;
+  }, [edges, selection]);
 
   const styledEdges = useMemo<Edge[]>(
     () =>
       edges.map((e) => {
         const active = activeEdgeIds.has(e.id);
+        const dimmed = focusNodeIds !== null && !active;
         return {
           ...e,
           label: active ? e.label : undefined,
           animated: active,
           zIndex: active ? 1000 : 0,
-          style: { stroke: active ? ACCENT : EDGE_IDLE, strokeWidth: active ? 2 : 1.5 },
+          style: {
+            stroke: active ? ACCENT : EDGE_IDLE,
+            strokeWidth: active ? 2 : 1.5,
+            opacity: dimmed ? 0.18 : 1,
+            transition: "opacity 0.15s ease",
+          },
           markerEnd: {
             type: MarkerType.ArrowClosed,
             width: 14,
@@ -196,7 +227,7 @@ export function PipelineFlow({ nodes, edges, jobNames }: PipelineFlowProps) {
           },
         };
       }),
-    [edges, activeEdgeIds],
+    [edges, activeEdgeIds, focusNodeIds],
   );
 
   const styledNodes = useMemo<Node[]>(
@@ -204,8 +235,12 @@ export function PipelineFlow({ nodes, edges, jobNames }: PipelineFlowProps) {
       nodes.map((n) => ({
         ...n,
         selected: selection?.kind === "node" && selection.id === n.id,
+        style: {
+          opacity: focusNodeIds !== null && !focusNodeIds.has(n.id) ? 0.25 : 1,
+          transition: "opacity 0.15s ease",
+        },
       })),
-    [nodes, selection],
+    [nodes, selection, focusNodeIds],
   );
 
   // Resolve the current selection into inspector fields from the graph payload.
@@ -261,6 +296,8 @@ export function PipelineFlow({ nodes, edges, jobNames }: PipelineFlowProps) {
         elementsSelectable
         onEdgeMouseEnter={(_, edge) => setHoverEdgeId(edge.id)}
         onEdgeMouseLeave={() => setHoverEdgeId(null)}
+        onNodeMouseEnter={(_, node) => setHoverNodeId(node.id)}
+        onNodeMouseLeave={() => setHoverNodeId(null)}
         onEdgeClick={(_, edge) => setSelection({ kind: "edge", id: edge.id })}
         onNodeClick={(_, node) => setSelection({ kind: "node", id: node.id })}
         onPaneClick={() => setSelection(null)}
@@ -296,6 +333,15 @@ export function PipelineFlow({ nodes, edges, jobNames }: PipelineFlowProps) {
                   <InspectorRow key={r.label} label={r.label} value={r.value} />
                 ))}
               </div>
+              {inspector.kind === "node" && selection?.kind === "node" && (
+                <Link
+                  to={`/profile?table=${encodeURIComponent(selection.id)}`}
+                  className="mt-2.5 flex items-center justify-center rounded-sm border border-primary/40 bg-primary/10 px-2 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wide text-primary transition-colors hover:bg-primary/20"
+                >
+                  Profile this table →
+                </Link>
+              )}
+              <div className="techmeta mt-2 normal-case text-[10px]">Esc to clear</div>
             </div>
           ) : (
             <div className="glass-panel rounded-sm px-3 py-2 text-[11px] text-muted-foreground shadow-lg">

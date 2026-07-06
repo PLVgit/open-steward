@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { GraphPage } from "./GraphPage";
@@ -79,6 +79,33 @@ describe("GraphPage", () => {
     ]);
     renderPage();
     await waitFor(() => expect(screen.getByTestId("flow")).toHaveTextContent("1 names"));
+  });
+
+  it("shows a collapsible execution-order rail", async () => {
+    mockGraphResponse(DAG);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Execution order")).toBeInTheDocument());
+    expect(screen.getByText("2 steps")).toBeInTheDocument();
+    // Collapsed by default; expanding reveals the ordered tables.
+    expect(screen.queryByText("raw.orders")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Show/ }));
+    expect(screen.getByText("raw.orders")).toBeInTheDocument();
+    expect(screen.getByText("staging.orders")).toBeInTheDocument();
+  });
+
+  it("hides the execution-order rail when a cycle is detected", async () => {
+    mockGraphResponse({
+      nodes: ["a", "b"],
+      edges: [
+        { source: "a", target: "b", config_key: "etl_1" },
+        { source: "b", target: "a", config_key: "etl_2" },
+      ],
+      execution_order: null,
+      cycle_detected: true,
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Cycle detected")).toBeInTheDocument());
+    expect(screen.queryByText("Execution order")).not.toBeInTheDocument();
   });
 
   it("shows an error message when the request fails", async () => {

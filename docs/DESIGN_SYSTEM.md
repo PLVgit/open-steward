@@ -89,6 +89,16 @@ empty-string stats on a non-text column) — never zero.
 | `Badge` | `components/ui/badge.tsx` | Sharp rectangular mono status chip (`error/warning/info/success/muted/solid`). |
 | `Card` | `components/ui/card.tsx` | Sharpened flat surface, kept for compatibility; new layouts prefer `Panel`. |
 | `Button` | `components/ui/button.tsx` | Sharp-cornered; `default` is green, `outline`/`ghost` for secondary actions. |
+| `Skeleton` | `components/ui/skeleton.tsx` | Pulsing placeholder shaped like the content it stands in for — every page loads with content-shaped skeletons, not a bare spinner. |
+| `ErrorState` | `components/ui/error-state.tsx` | The one error surface: red-railed panel, `role="alert"` message, and a **Retry** button — no dead ends. |
+
+### Motion
+
+Small and consistent: panels rise in with `.panel-in` (280ms ease-out), KPI
+numbers count up on the Overview (`useCountUp`, ~600ms), edge/node focus fades
+at 150ms. All motion collapses to ~0ms under `prefers-reduced-motion` (and
+count-up snaps instantly wherever `matchMedia` is unavailable), so screenshots
+and accessibility both see final states.
 
 ---
 
@@ -104,11 +114,11 @@ empty-string stats on a non-text column) — never zero.
 
 | Page | Archetype | Treatment |
 |---|---|---|
-| **Overview** | Command center | Row of KPI tiles — three **inverted white** tiles plus one **neon-green headline status** tile (Pipeline Status / Operational) — then a configured-jobs roster (the "subject list") beside a connection-status panel and an enabled-ratio meter. |
+| **Overview** | Command center | Row of KPI tiles — three **inverted white** tiles (count-up numbers) plus one **neon-green headline status** tile — then a **Signals** panel (error/warning/row-loss/PK counts linking to Findings and Statistics), a configured-jobs roster, a connection-status panel and an enabled-ratio meter. |
 | **Findings** | Alert feed | Mono summary chips with status dots, severity filter buttons, then a single panel of dense alert rows with a colored severity rail, status dot, severity badge, mono finding type, and a `transform` tag for reconciliation findings. |
 | **Statistics** | ETL telemetry | Summary instrument tiles, then one panel per job — header shows `config_key`, name, `source → target`, and row-loss / pk-issue badges; body is a grid of mono metric readouts. Panels gain a warning/error accent rail when flagged. |
 | **Profile** | Data-quality inspection | A target-table control strip, table-level summary stats, a dense per-column table (nulls / distinct / empty), and a data-quality findings feed. |
-| **Graph** | Topology view | React Flow canvas framed to match: sharp-cornered nodes with a colored namespace rail (source = green, staging = sky, mart = violet), neutral edges with mono key labels that fade out when zoomed out, themed minimap/controls, and an eyebrow-labeled legend. |
+| **Graph** | Topology view | React Flow canvas framed to match: sharp-cornered nodes with a colored namespace rail (source = green, staging = sky, mart = violet), edge labels hidden until hover/selection, **focus mode** (selecting a table dims everything unrelated; Esc clears), an edge/table inspector with a "Profile this table" jump, a collapsible execution-order rail, themed minimap/controls, and an eyebrow-labeled legend. |
 
 ---
 

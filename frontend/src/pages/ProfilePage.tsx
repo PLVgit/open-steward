@@ -1,9 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { AlertTriangle, CheckCircle2, FileSearch, Loader2 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { CheckCircle2, FileSearch, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
 import { Panel, PanelBody, PanelHeader } from "@/components/ui/panel";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusDot } from "@/components/ui/status-dot";
 import { api, ApiError } from "@/lib/api";
 import { dash, pct } from "@/lib/statistics";
@@ -52,11 +55,26 @@ function SummaryStat({ label, value }: { label: string; value: string | number }
 }
 
 export function ProfilePage() {
+  // Deep-linkable: /profile?table=schema.table pre-selects a table (used by
+  // the graph inspector and findings links).
+  const [searchParams] = useSearchParams();
+  const linked = searchParams.get("table")?.trim();
   // `table` is the submitted value that drives the fetch; `input` is the live
   // text field. Two simple useState values — no state library.
-  const [table, setTable] = useState(DEFAULT_TABLE);
-  const [input, setInput] = useState(DEFAULT_TABLE);
+  const [table, setTable] = useState(linked || DEFAULT_TABLE);
+  const [input, setInput] = useState(linked || DEFAULT_TABLE);
   const [state, setState] = useState<State>({ state: "loading" });
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // React to in-app navigation that changes the query param while mounted.
+  useEffect(() => {
+    const t = searchParams.get("table")?.trim();
+    if (t && t !== table) {
+      setTable(t);
+      setInput(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,7 +95,7 @@ export function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [table]);
+  }, [table, reloadKey]);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -123,18 +141,22 @@ export function ProfilePage() {
       </Panel>
 
       {state.state === "loading" && (
-        <Panel>
-          <PanelBody className="flex items-center gap-2 text-sm text-muted-foreground">
+        <>
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading profile…
-          </PanelBody>
-        </Panel>
+          </p>
+          <div className="space-y-3" aria-hidden>
+            <div className="grid grid-cols-3 gap-3">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} className="h-16" />
+              ))}
+            </div>
+            <Skeleton className="h-64" />
+          </div>
+        </>
       )}
       {state.state === "error" && (
-        <Panel accent="error">
-          <PanelBody className="flex items-center gap-2 text-sm text-destructive" role="alert">
-            <AlertTriangle className="h-4 w-4 shrink-0" /> {state.message}
-          </PanelBody>
-        </Panel>
+        <ErrorState message={state.message} onRetry={() => setReloadKey((k) => k + 1)} />
       )}
 
       {profile && (

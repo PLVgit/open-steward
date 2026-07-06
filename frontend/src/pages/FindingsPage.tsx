@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Activity, CheckCircle2, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
 import { Panel, PanelBody, PanelHeader } from "@/components/ui/panel";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusDot } from "@/components/ui/status-dot";
 import { api, ApiError } from "@/lib/api";
 import {
@@ -103,6 +106,7 @@ export function FindingsPage() {
   const { configFile } = useConfig();
   const [state, setState] = useState<State>({ state: "loading" });
   const [filter, setFilter] = useState<SeverityFilter>("all");
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,7 +129,7 @@ export function FindingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [configFile]);
+  }, [configFile, reloadKey]);
 
   const findings = state.state === "ok" ? state.findings : [];
   const summary = useMemo(() => summarizeFindings(findings), [findings]);
@@ -153,18 +157,22 @@ export function FindingsPage() {
       </div>
 
       {state.state === "loading" && (
-        <Panel>
-          <PanelBody className="flex items-center gap-2 text-sm text-muted-foreground">
+        <>
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading findings…
-          </PanelBody>
-        </Panel>
+          </p>
+          <div className="space-y-3" aria-hidden>
+            <div className="flex gap-2">
+              <Skeleton className="h-7 w-24" />
+              <Skeleton className="h-7 w-28" />
+              <Skeleton className="h-7 w-20" />
+            </div>
+            <Skeleton className="h-72" />
+          </div>
+        </>
       )}
       {state.state === "error" && (
-        <Panel accent="error">
-          <PanelBody className="flex items-center gap-2 text-sm text-destructive" role="alert">
-            <AlertTriangle className="h-4 w-4 shrink-0" /> {state.message}
-          </PanelBody>
-        </Panel>
+        <ErrorState message={state.message} onRetry={() => setReloadKey((k) => k + 1)} />
       )}
 
       {state.state === "ok" && (
@@ -192,9 +200,11 @@ export function FindingsPage() {
       )}
 
       {state.state === "ok" && summary.total === 0 && (
-        <Panel accent="healthy">
-          <PanelBody className="flex items-center gap-2 py-8 text-sm text-primary">
-            <CheckCircle2 className="h-4 w-4" /> No findings. ✓
+        <Panel accent="healthy" className="shadow-[0_0_34px_-14px_hsl(142_84%_52%/0.5)]">
+          <PanelBody className="flex flex-col items-center gap-2 py-12 text-center">
+            <CheckCircle2 className="h-8 w-8 text-primary" />
+            <p className="text-sm font-semibold text-primary">No findings. ✓</p>
+            <p className="techmeta normal-case">All structural, SQL and reconciliation checks passed</p>
           </PanelBody>
         </Panel>
       )}
@@ -226,9 +236,13 @@ export function FindingsPage() {
                     </span>
                     {isTransform && <Badge variant="success">transform</Badge>}
                     {hasText(f.affected_table) && (
-                      <span className="font-mono text-xs text-muted-foreground">
+                      <Link
+                        to={`/profile?table=${encodeURIComponent(f.affected_table)}`}
+                        title={`Profile ${f.affected_table}`}
+                        className="font-mono text-xs text-muted-foreground underline decoration-border underline-offset-2 transition-colors hover:text-primary hover:decoration-primary"
+                      >
                         {f.affected_table}
-                      </span>
+                      </Link>
                     )}
                     {hasText(f.affected_job) && (
                       <span className="techmeta normal-case">job: {f.affected_job}</span>

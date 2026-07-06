@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, GitBranch, Loader2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, GitBranch, ListOrdered, Loader2 } from "lucide-react";
 
-import { Panel, PanelBody } from "@/components/ui/panel";
+import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
+import { Panel, PanelBody, PanelHeader } from "@/components/ui/panel";
+import { Skeleton } from "@/components/ui/skeleton";
 import { PipelineFlow } from "@/components/graph/PipelineFlow";
 import { api, ApiError } from "@/lib/api";
 import { buildFlowElements } from "@/lib/graphLayout";
@@ -13,10 +16,51 @@ type State =
   | { state: "ok"; graph: GraphResponse }
   | { state: "error"; message: string };
 
+/** Collapsible numbered rail showing the computed execution order. */
+function ExecutionOrder({ order }: { order: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Panel>
+      <PanelHeader>
+        <div className="flex min-w-0 items-center gap-2">
+          <ListOrdered className="h-4 w-4 shrink-0 text-primary" />
+          <span className="text-sm font-semibold tracking-tight">Execution order</span>
+          <span className="techmeta normal-case">{order.length} steps</span>
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => setOpen((o) => !o)}>
+          {open ? (
+            <>
+              Hide <ChevronUp className="h-3.5 w-3.5" />
+            </>
+          ) : (
+            <>
+              Show <ChevronDown className="h-3.5 w-3.5" />
+            </>
+          )}
+        </Button>
+      </PanelHeader>
+      {open && (
+        <PanelBody className="flex flex-wrap gap-1.5">
+          {order.map((table, i) => (
+            <span
+              key={table}
+              className="surface-inset inline-flex items-center gap-1.5 px-2 py-1 font-mono text-xs"
+            >
+              <span className="font-bold tabular-nums text-primary">{i + 1}</span>
+              <span className="text-foreground/90">{table}</span>
+            </span>
+          ))}
+        </PanelBody>
+      )}
+    </Panel>
+  );
+}
+
 export function GraphPage() {
   const { configFile } = useConfig();
   const [state, setState] = useState<State>({ state: "loading" });
   const [jobNames, setJobNames] = useState<Map<string, string>>(new Map());
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,7 +92,7 @@ export function GraphPage() {
     return () => {
       cancelled = true;
     };
-  }, [configFile]);
+  }, [configFile, reloadKey]);
 
   const elements = useMemo(
     () => (state.state === "ok" ? buildFlowElements(state.graph) : null),
@@ -68,8 +112,8 @@ export function GraphPage() {
           <h1 className="text-xl font-bold uppercase tracking-tight">Pipeline Graph</h1>
           <p className="techmeta mt-1 normal-case">
             Table dependencies and execution order from{" "}
-            <code className="text-foreground/80">{configFile}</code> · edges are labeled with the
-            ETL config key
+            <code className="text-foreground/80">{configFile}</code> · hover or select edges and
+            tables to inspect
           </p>
         </div>
       </div>
@@ -88,20 +132,23 @@ export function GraphPage() {
         </Panel>
       )}
 
+      {state.state === "ok" &&
+        !state.graph.cycle_detected &&
+        (state.graph.execution_order?.length ?? 0) > 0 && (
+          <ExecutionOrder order={state.graph.execution_order!} />
+        )}
+
       {state.state === "loading" && (
-        <Panel className="flex h-[60vh] items-center justify-center">
-          <PanelBody className="flex items-center gap-2 text-sm text-muted-foreground">
+        <>
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading graph…
-          </PanelBody>
-        </Panel>
+          </p>
+          <Skeleton className="h-[60vh] min-h-[540px]" aria-hidden />
+        </>
       )}
 
       {state.state === "error" && (
-        <Panel accent="error">
-          <PanelBody className="flex items-center gap-2 text-sm text-destructive" role="alert">
-            <AlertTriangle className="h-4 w-4 shrink-0" /> {state.message}
-          </PanelBody>
-        </Panel>
+        <ErrorState message={state.message} onRetry={() => setReloadKey((k) => k + 1)} />
       )}
 
       {isEmpty && (

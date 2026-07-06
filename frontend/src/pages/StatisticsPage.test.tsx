@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { StatisticsPage } from "./StatisticsPage";
@@ -128,5 +128,22 @@ describe("StatisticsPage", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("down")));
     renderPage();
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+  });
+
+  it("recovers via the Retry button after an error", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockResolvedValue({ ok: true, status: 200, json: async () => [] });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /Retry/ }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/No enabled jobs with statistics/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

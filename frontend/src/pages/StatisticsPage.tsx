@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BarChart3, Loader2 } from "lucide-react";
+import { BarChart3, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { ErrorState } from "@/components/ui/error-state";
 import { Panel, PanelBody, PanelHeader } from "@/components/ui/panel";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api";
 import { boolText, dash, pct, summarizeStatistics } from "@/lib/statistics";
 import { cn } from "@/lib/utils";
@@ -55,6 +57,7 @@ function SummaryCard({ label, value, tone }: { label: string; value: number; ton
 export function StatisticsPage() {
   const { configFile } = useConfig();
   const [state, setState] = useState<State>({ state: "loading" });
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,7 +78,7 @@ export function StatisticsPage() {
     return () => {
       cancelled = true;
     };
-  }, [configFile]);
+  }, [configFile, reloadKey]);
 
   const stats = state.state === "ok" ? state.stats : [];
   const summary = useMemo(() => summarizeStatistics(stats), [stats]);
@@ -99,18 +102,23 @@ export function StatisticsPage() {
       </div>
 
       {state.state === "loading" && (
-        <Panel>
-          <PanelBody className="flex items-center gap-2 text-sm text-muted-foreground">
+        <>
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading statistics…
-          </PanelBody>
-        </Panel>
+          </p>
+          <div className="space-y-3" aria-hidden>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[0, 1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-24" />
+              ))}
+            </div>
+            <Skeleton className="h-44" />
+            <Skeleton className="h-44" />
+          </div>
+        </>
       )}
       {state.state === "error" && (
-        <Panel accent="error">
-          <PanelBody className="flex items-center gap-2 text-sm text-destructive" role="alert">
-            <AlertTriangle className="h-4 w-4 shrink-0" /> {state.message}
-          </PanelBody>
-        </Panel>
+        <ErrorState message={state.message} onRetry={() => setReloadKey((k) => k + 1)} />
       )}
       {state.state === "ok" && stats.length === 0 && (
         <Panel>

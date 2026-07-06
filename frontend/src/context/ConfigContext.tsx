@@ -10,39 +10,67 @@ export const DEFAULT_CONFIG_FILE = "demo_config.csv";
 // The selection persists across reloads so a demo session (e.g. on
 // showcase_config.csv) survives a refresh.
 export const CONFIG_STORAGE_KEY = "open-steward.config-file";
+export const RECENTS_STORAGE_KEY = "open-steward.recent-configs";
+const MAX_RECENTS = 5;
 
-function initialConfigFile(): string {
+function readStorage(key: string): string | null {
   // localStorage can throw (disabled storage, some private modes) — fall back.
   try {
-    const stored = window.localStorage.getItem(CONFIG_STORAGE_KEY);
-    if (stored && stored.trim()) return stored;
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
   } catch {
     /* ignore */
   }
-  return DEFAULT_CONFIG_FILE;
+}
+
+function initialConfigFile(): string {
+  const stored = readStorage(CONFIG_STORAGE_KEY);
+  return stored && stored.trim() ? stored : DEFAULT_CONFIG_FILE;
+}
+
+function initialRecents(): string[] {
+  const stored = readStorage(RECENTS_STORAGE_KEY);
+  if (!stored) return [];
+  try {
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 interface ConfigContextValue {
   configFile: string;
   setConfigFile: (file: string) => void;
+  /** Most-recently used config files, newest first (for input suggestions). */
+  recentConfigs: string[];
 }
 
 const ConfigContext = createContext<ConfigContextValue | undefined>(undefined);
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
   const [configFile, setConfigFileState] = useState(initialConfigFile);
+  const [recentConfigs, setRecentConfigs] = useState<string[]>(initialRecents);
 
   const setConfigFile = (file: string) => {
     setConfigFileState(file);
-    try {
-      window.localStorage.setItem(CONFIG_STORAGE_KEY, file);
-    } catch {
-      /* ignore */
-    }
+    writeStorage(CONFIG_STORAGE_KEY, file);
+    setRecentConfigs((prev) => {
+      const next = [file, ...prev.filter((f) => f !== file)].slice(0, MAX_RECENTS);
+      writeStorage(RECENTS_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
   };
 
   return (
-    <ConfigContext.Provider value={{ configFile, setConfigFile }}>
+    <ConfigContext.Provider value={{ configFile, setConfigFile, recentConfigs }}>
       {children}
     </ConfigContext.Provider>
   );

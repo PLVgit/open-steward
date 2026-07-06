@@ -24,7 +24,7 @@ const Panel = React.forwardRef<HTMLDivElement, PanelProps>(
     <div
       ref={ref}
       className={cn(
-        "relative overflow-hidden rounded-sm border border-border bg-card shadow-[0_1px_0_0_hsl(0_0%_100%/0.03)_inset,0_10px_30px_-18px_rgb(0_0_0/0.9)]",
+        "panel-in relative overflow-hidden rounded-sm border border-border bg-card shadow-[0_1px_0_0_hsl(0_0%_100%/0.03)_inset,0_10px_30px_-18px_rgb(0_0_0/0.9)]",
         accent !== "none" &&
           "before:absolute before:inset-x-0 before:top-0 before:z-10 before:h-[2px] before:content-['']",
         ACCENT_LINE[accent],
