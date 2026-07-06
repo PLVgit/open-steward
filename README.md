@@ -108,12 +108,28 @@ all-null, high-null-rate, constant-column, and high-empty-string findings.
 
 > Requires Python 3.11+ and Node 18+.
 
-**1. Backend (API + CLI)**
+**Run as one app** — build the UI once, then FastAPI serves UI + API together:
 
 ```bash
+cd frontend && npm install && npm run build    # build the UI once
+cd ../backend && pip install -e ".[dev]"
+open-steward serve                             # Open Steward at http://localhost:8000
+```
+
+Opening `http://localhost:8000` loads the full UI; the API docs stay at `/docs`.
+
+**Development mode** — hot reload, two terminals:
+
+```bash
+# terminal 1 — backend
 cd backend
 pip install -e ".[dev]"
 uvicorn app.main:app --reload --port 8000     # API + docs at http://localhost:8000/docs
+
+# terminal 2 — frontend
+cd frontend
+npm install
+npm run dev                                    # UI at http://localhost:5173 (proxies /api)
 ```
 
 The `pip install` adds an `open-steward` command. The CLI can be invoked three
@@ -125,16 +141,8 @@ python -m app.cli --help   # module fallback (if the command isn't on PATH)
 py -m app.cli --help       # Windows launcher fallback
 ```
 
-**2. Frontend (UI)**
-
-```bash
-cd frontend
-npm install
-npm run dev                                    # UI at http://localhost:5173
-```
-
-With the backend running, the **Overview** page reports "Connected." and lists the
-jobs. The config selector in the header drives every page.
+Either way, the **Overview** page reports "Connected." and lists the jobs. The
+config selector in the header drives every page.
 
 ![Overview dashboard reporting a healthy backend connection and the job roster](docs/screenshots/overview-showcase.png)
 

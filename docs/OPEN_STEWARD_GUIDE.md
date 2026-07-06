@@ -33,7 +33,7 @@ and Node toolchain.
 
 ## 2. What Open Steward does today
 
-All of the following are implemented and covered by tests (303 backend tests,
+All of the following are implemented and covered by tests (319 backend tests,
 60 frontend tests):
 
 - **CSV-driven pipeline config ingestion** — parse a config CSV into typed
@@ -251,6 +251,24 @@ cd frontend
 npm run build      # type-check + production build
 npm test           # Vitest unit tests
 ```
+
+### Run as one app (production-style)
+
+Once the frontend is built (`npm run build`), the FastAPI backend serves the
+compiled UI itself — one process, one port:
+
+```bash
+cd backend
+open-steward serve            # UI + API at http://localhost:8000 (docs at /docs)
+open-steward serve --port 9000 --host 0.0.0.0   # options
+```
+
+How it works: the built single-page app is served from `frontend/dist` with an
+SPA fallback (hard reloads on `/graph`, `/findings`, … load the app), and the
+API is aliased under `/api/*` — the same prefix the Vite dev proxy uses — so the
+UI works identically in both modes. The bare API paths (`/pipelines/`, …) remain
+canonical and unchanged. If the UI hasn't been built, `serve` still runs the API
+and tells you how to build the UI.
 
 ---
 

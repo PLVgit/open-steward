@@ -352,5 +352,27 @@ def profile(
     raise typer.Exit(code=code)
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Interface to bind."),
+    port: int = typer.Option(8000, "--port", "-p", help="Port to listen on."),
+    reload: bool = typer.Option(False, "--reload", help="Auto-reload on backend code changes (development)."),
+) -> None:
+    """Run Open Steward as one app: the API plus the built UI (if present)."""
+    import uvicorn
+
+    from app.main import DIST_DIR
+
+    if (DIST_DIR / "index.html").is_file():
+        typer.echo(f"Serving UI + API at http://{host}:{port}  (docs at /docs)")
+    else:
+        typer.echo(
+            "UI build not found — serving the API only (docs at /docs). "
+            "Build the UI with 'npm run build' in frontend/.",
+            err=True,
+        )
+    uvicorn.run("app.main:app", host=host, port=port, reload=reload)
+
+
 if __name__ == "__main__":
     app()

@@ -14,6 +14,13 @@ pip install -e ".[dev]"
 open-steward list --file demo_data/demo_config.csv
 ```
 
+To run Open Steward as **one app** (API + built UI on a single port), build the
+frontend once (`npm run build` in `frontend/`) and run:
+
+```bash
+open-steward serve            # http://localhost:8000 (API docs at /docs)
+```
+
 > **PATH note:** If `open-steward` is not found after install, either add the Python scripts directory to your PATH or invoke the tool as a module from the `backend/` directory: `python -m app.cli …` (or `py -m app.cli …` on Windows).
 
 ---

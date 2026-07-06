@@ -343,3 +343,11 @@ def test_db_file_not_found_clear_error():
     result = runner.invoke(app, ["stats", "--file", _SAMPLE, "--db", "missing.duckdb"])
     assert result.exit_code == 1
     assert "No database file" in result.output
+
+
+# ── serve ─────────────────────────────────────────────────────────────────────
+
+def test_serve_command_registered():
+    result = runner.invoke(app, ["serve", "--help"])
+    assert result.exit_code == 0
+    assert "--port" in result.output
