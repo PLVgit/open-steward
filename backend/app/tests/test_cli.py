@@ -271,3 +271,75 @@ def test_profile_command_missing_table_exits_1(tmp_path):
     result = runner.invoke(app, ["profile", "--table", "staging.orders", "--data-dir", str(tmp_path)])
     assert result.exit_code == 1
     assert "Error" in result.output
+
+
+# ── dbt manifest source (--manifest) ──────────────────────────────────────────
+
+_MANIFEST = str(_SAMPLES / "dbt_manifest_sample.json")
+
+
+def test_list_from_manifest():
+    result = runner.invoke(app, ["list", "--manifest", _MANIFEST])
+    assert result.exit_code == 0
+    assert "stg_orders" in result.output
+    assert "orders_enriched" in result.output
+
+
+def test_file_and_manifest_together_rejected():
+    result = runner.invoke(app, ["list", "--file", _SAMPLE, "--manifest", _MANIFEST])
+    assert result.exit_code == 2
+    assert "exactly one" in result.output
+
+
+def test_neither_file_nor_manifest_rejected():
+    result = runner.invoke(app, ["list"])
+    assert result.exit_code == 2
+    assert "exactly one" in result.output
+
+
+def test_stats_requires_data_dir_or_db():
+    result = runner.invoke(app, ["stats", "--file", _SAMPLE])
+    assert result.exit_code == 2
+    assert "--data-dir or --db" in result.output
+
+
+# ── database source (--db) ────────────────────────────────────────────────────
+
+def _make_warehouse(tmp_path: Path) -> str:
+    import duckdb
+
+    db_path = tmp_path / "warehouse.duckdb"
+    conn = duckdb.connect(str(db_path))
+    conn.execute("CREATE SCHEMA raw; CREATE SCHEMA staging;")
+    conn.execute("CREATE TABLE raw.orders AS SELECT * FROM (VALUES (1), (2), (3)) t(id)")
+    conn.execute("CREATE TABLE staging.orders AS SELECT * FROM (VALUES (1), (2)) t(id)")
+    conn.close()
+    return str(db_path)
+
+
+def test_check_reconciles_against_database(tmp_path):
+    csv = tmp_path / "config.csv"
+    csv.write_text(
+        "config_key,pipeline_name,enabled,source_table,target_table,load_type\n"
+        "etl_001,Load Orders,true,raw.orders,staging.orders,full\n",
+        encoding="utf-8",
+    )
+    db = _make_warehouse(tmp_path)
+    result = runner.invoke(app, ["check", "--file", str(csv), "--db", db])
+    assert result.exit_code == 0  # row_count_drop is a warning, not an error
+    assert "row_count_drop" in result.output
+
+
+def test_data_dir_and_db_together_rejected(tmp_path):
+    db = _make_warehouse(tmp_path)
+    result = runner.invoke(
+        app, ["check", "--file", _SAMPLE, "--data-dir", str(tmp_path), "--db", db],
+    )
+    assert result.exit_code == 2
+    assert "only one" in result.output
+
+
+def test_db_file_not_found_clear_error():
+    result = runner.invoke(app, ["stats", "--file", _SAMPLE, "--db", "missing.duckdb"])
+    assert result.exit_code == 1
+    assert "No database file" in result.output

@@ -1,10 +1,11 @@
 # Open Steward — Local-first Pipeline Intelligence & Data Quality Platform
 
-Open Steward is a local-first tool that reads SQL-config-driven ETL pipeline
-definitions, reconstructs the dependencies between jobs and tables, flags risky
-SQL, explains row-count changes between source and target data, and profiles
-final tables for data-quality issues. Point it at your pipeline config and table
-data (CSV or Parquet) and run it through a CLI, a FastAPI service, or a React UI.
+Open Steward is a local-first tool that reads ETL pipeline definitions — from a
+config CSV or a dbt manifest — reconstructs the dependencies between jobs and
+tables, flags risky SQL, explains row-count changes between source and target
+data, and profiles final tables for data-quality issues. Point it at your
+pipeline definitions and table data (CSV/Parquet snapshots, a DuckDB database,
+or Postgres) and run it through a CLI, a FastAPI service, or a React UI.
 
 ---
 
@@ -32,11 +33,20 @@ and Node toolchain.
 
 ## 2. What Open Steward does today
 
-All of the following are implemented and covered by tests (251 backend tests,
+All of the following are implemented and covered by tests (303 backend tests,
 54 frontend tests):
 
 - **CSV-driven pipeline config ingestion** — parse a config CSV into typed
   `PipelineJob` objects.
+- **dbt manifest ingestion** — parse a dbt `manifest.json` (compiled preferred):
+  models become jobs with multi-parent lineage (`depends_on`), compiled SQL,
+  materialization-derived load types, and **primary keys derived from dbt's own
+  `unique` tests**. Ephemeral models are resolved through to their parents.
+- **Database connectivity** — reconcile and profile directly against a DuckDB
+  database file, or Postgres attached read-only via DuckDB's postgres
+  extension. Credentials live in environment variables (`${VAR}` placeholders
+  in the URL are expanded, never logged) and URLs are CLI-only — the HTTP API
+  never accepts them.
 - **Pipeline dependency graph** — build a table-level dependency graph (NetworkX)
   from each job's source/target tables.
 - **Execution order calculation** — topological order, with cycle detection.
@@ -161,9 +171,10 @@ REST API) plus a separate React frontend that talks to the API.
 
 **Layer responsibilities:**
 
-- **Config adapter** (`adapters/csv_adapter.py`) — reads the config CSV into
-  `PipelineJob` models via a `PipelineSource` protocol (so other sources can be
-  added later without touching services).
+- **Pipeline sources** (`adapters/csv_adapter.py`, `adapters/dbt_manifest_adapter.py`)
+  — read job definitions from a config CSV or a dbt manifest into `PipelineJob`
+  models via the `PipelineSource` protocol; services never know which one
+  produced the jobs.
 - **Graph builder** (`services/graph_builder.py`) — builds the NetworkX
   dependency graph, computes execution order, detects cycles.
 - **SQL analyzer** (`services/sql_analyzer.py`) — parses each job's `sql_query`
@@ -173,6 +184,11 @@ REST API) plus a separate React frontend that talks to the API.
   counts…). No method returns raw rows.
 - **LocalFileDataSource** (`adapters/local_file_data_source.py`) — implements the
   protocol over local CSV/Parquet using an in-memory DuckDB connection.
+- **DatabaseDataSource** (`adapters/database_data_source.py`) — the same
+  aggregate-only protocol over a DuckDB database file or an attached Postgres
+  database. Both database sources share one query implementation
+  (`adapters/duckdb_aggregate_source.py`) with the file source — only the
+  table→relation resolution differs.
 - **Reconciliation engine** (`services/reconciliation_engine.py`) — orchestrates
   per-job source↔target checks and the staged transformation analysis.
 - **Filter analyzer** (`services/filter_analyzer.py`) — conservatively extracts a
@@ -281,6 +297,23 @@ open-steward stats --file demo_data/demo_config.csv --data-dir demo_data
 open-steward profile --table staging.orders --data-dir demo_data
 ```
 
+**From a dbt manifest instead of a CSV** — every command accepts `--manifest`
+(exactly one of `--file`/`--manifest`):
+
+```bash
+open-steward list  --manifest samples/dbt_manifest_sample.json
+open-steward check --manifest samples/dbt_manifest_sample.json --data-dir demo_data
+```
+
+**Against a database instead of snapshots** — `--db` takes a DuckDB database
+file or a `postgres://` URL (`${ENV_VAR}` placeholders expanded from the
+environment; the resolved URL is never logged):
+
+```bash
+open-steward stats --file demo_data/demo_config.csv --db warehouse.duckdb
+open-steward check --file demo_data/demo_config.csv --db "postgres://steward:${PGPASSWORD}@localhost/warehouse"
+```
+
 Exit codes: `check` and `profile` exit `1` on any error-severity finding, `graph`
 exits `1` on a cycle (CI-friendly); `list` and `stats` always exit `0`.
 
@@ -312,16 +345,24 @@ curl "http://localhost:8000/profile/?table=staging.orders&data_dir=."
 
 | Endpoint | Query params | Returns |
 |---|---|---|
-| `GET /pipelines/` | `file` | All jobs |
-| `GET /pipelines/{config_key}` | `file` | One job |
-| `GET /graph/` | `file` | Nodes, edges, execution order, cycle flag |
-| `GET /findings/` | `file`, `data_dir` *(optional)* | Structural + SQL findings; reconciliation findings too when `data_dir` is given |
-| `GET /statistics/` | `file`, `data_dir` | Per-job statistics |
-| `GET /profile/` | `table`, `data_dir` | Table profile + data-quality findings |
+| `GET /pipelines/` | `file` *or* `manifest` | All jobs |
+| `GET /pipelines/{config_key}` | `file` *or* `manifest` | One job |
+| `GET /graph/` | `file` *or* `manifest` | Nodes, edges, execution order, cycle flag |
+| `GET /findings/` | `file`/`manifest`, `data_dir` or `db` *(optional)* | Structural + SQL findings; reconciliation findings too when data is given |
+| `GET /statistics/` | `file`/`manifest`, `data_dir` or `db` | Per-job statistics |
+| `GET /profile/` | `table`, `data_dir` or `db` | Table profile + data-quality findings |
 
-Path safety: `file` is confined to `backend/samples/`, `data_dir` to
-`backend/demo_data/`, and `table` is validated against a strict pattern — so the
-HTTP surface cannot read arbitrary files. (The CLI accepts arbitrary local paths.)
+Every config endpoint takes exactly one pipeline source: `file` (config CSV) or
+`manifest` (dbt manifest.json), both confined to `backend/samples/`. Data comes
+from `data_dir` (snapshots) or `db` (a `.duckdb` file confined to
+`backend/demo_data/`) — at most one of the two.
+
+Path safety: `file`/`manifest` are confined to `backend/samples/`, `data_dir`
+and `db` to `backend/demo_data/`, and `table` is validated against a strict
+pattern — so the HTTP surface cannot read arbitrary files. **Database URLs
+(credentials) are never accepted over the API**; connection strings are a CLI
+concern, configured through environment variables. (The CLI accepts arbitrary
+local paths.)
 
 ---
 
@@ -499,6 +540,16 @@ and falls back safely otherwise. Current coverage:
 - **Single-column join keys** (composite keys not yet covered).
 - **`INNER` and `LEFT` joins** (`RIGHT`/`FULL`/`NATURAL`/`USING` not yet covered).
 - **Single-column primary keys** in reconciliation/profiling.
+- **Multi-parent lineage is preserved in the graph** (dbt models with several
+  refs contribute one edge per parent), but reconciliation still models one
+  primary source table per job.
+- **dbt support** reads a documented subset of `manifest.json` (models, sources,
+  seeds, snapshots, and `unique` tests; manifest schemas v10–v12). Ephemeral
+  models are resolved through to their parents; models with no resolvable
+  upstream are skipped. Prefer a compiled manifest — raw Jinja SQL is flagged
+  as unparseable rather than analyzed.
+- **Database connectivity** covers DuckDB files (read-only) and Postgres via
+  DuckDB's postgres extension (installed automatically on first use).
 - Profiling covers columns whose names match `[A-Za-z0-9_]+`.
 
 ---
@@ -517,7 +568,7 @@ and falls back safely otherwise. Current coverage:
   flagging differences.
 - A typed React + TypeScript frontend (Vite, Tailwind, shadcn/ui, React Flow) with
   a dev proxy and unit tests.
-- Strong test discipline: 300+ tests across backend and frontend, including pure
+- Strong test discipline: 350+ tests across backend and frontend, including pure
   unit tests for the analysis logic.
 - CI, an MIT license, and honest, verified documentation.
 
@@ -537,7 +588,7 @@ tests, docs).
 > SQL-config ETL pipelines, reconstructs dependencies, analyzes SQL risk with
 > sqlglot, and explains row-count changes through filter- and join-aware
 > reconciliation over DuckDB — exposed through a typer CLI, a FastAPI service, and
-> a typed React/TypeScript UI, with 300+ tests and CI.
+> a typed React/TypeScript UI, with 350+ tests and CI.
 
 ---
 
@@ -547,7 +598,8 @@ Future ideas only — none of these are implemented yet:
 
 - Composite and multi-join transformation support; `RIGHT`/`FULL` joins;
   post-join `WHERE`.
-- Additional data-source integrations and adapters (dbt, ADF, live DB connectors).
-- Richer UI: optional charts and trend views.
+- Additional adapters and connectors (ADF, dbt `catalog.json`/freshness,
+  Snowflake/BigQuery).
+- Richer UI: optional charts and trend views; dbt manifests selectable from the UI.
 - Configurable thresholds and per-job row-loss tolerances; `--output json` on the
   CLI.

@@ -54,7 +54,7 @@ only SQL findings.)
 
 ```bash
 cd backend
-python -m pytest -q        # 251 passed
+python -m pytest -q        # 303 passed
 ```
 
 ### CLI checks (run from `backend/`)

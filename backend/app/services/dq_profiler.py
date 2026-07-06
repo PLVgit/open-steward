@@ -8,6 +8,11 @@ _VALID_NAME = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 def profile_table(table_name: str, data_source: DataSource) -> TableProfile:
+    # Source-agnostic existence check: file-backed sources raise
+    # FileNotFoundError themselves, but database-backed sources raise their
+    # driver's catalog error — normalize both to FileNotFoundError here.
+    if not data_source.table_exists(table_name):
+        raise FileNotFoundError(f"No table found for '{table_name}'.")
     schema = data_source.get_schema(table_name)
     row_count = data_source.get_row_count(table_name)
 

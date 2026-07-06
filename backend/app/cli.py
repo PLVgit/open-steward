@@ -4,6 +4,9 @@ from pathlib import Path
 import typer
 
 from app.adapters.csv_adapter import CsvAdapter
+from app.adapters.data_source import DataSource
+from app.adapters.database_data_source import DatabaseDataSource
+from app.adapters.dbt_manifest_adapter import DbtManifestAdapter
 from app.adapters.local_file_data_source import LocalFileDataSource
 from app.models.finding import ValidationFinding
 from app.models.job_statistics import JobStatistics
@@ -33,17 +36,46 @@ app = typer.Typer(
 )
 
 
-# ── shared loader ─────────────────────────────────────────────────────────────
+# ── shared loaders ────────────────────────────────────────────────────────────
 
-def _load(file: Path) -> list[PipelineJob]:
+# Reused option declarations: pipeline definitions come from exactly one of a
+# config CSV (--file) or a dbt manifest (--manifest).
+FILE_OPT = typer.Option(None, "--file", "-f", help="Path to ETL config CSV")
+MANIFEST_OPT = typer.Option(None, "--manifest", "-m", help="Path to a dbt manifest.json")
+
+
+def _load_jobs(file: Path | None, manifest: Path | None) -> tuple[list[PipelineJob], Path]:
+    """Load jobs from exactly one pipeline source; returns (jobs, source path)."""
+    if (file is None) == (manifest is None):
+        typer.echo("Error: provide exactly one of --file or --manifest.", err=True)
+        raise typer.Exit(code=2)
+    path = file if file is not None else manifest
+    adapter = CsvAdapter(str(file)) if file is not None else DbtManifestAdapter(str(manifest))
     try:
-        return CsvAdapter(str(file)).load()
+        return adapter.load(), path
     except FileNotFoundError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1)
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1)
+
+
+def _make_data_source(data_dir: Path | None, db: str | None) -> DataSource | None:
+    """Build a DataSource from --data-dir (snapshots) or --db (database file or
+    postgres:// URL, ${ENV_VAR} placeholders expanded). None when neither given."""
+    if data_dir is not None and db is not None:
+        typer.echo("Error: provide only one of --data-dir or --db.", err=True)
+        raise typer.Exit(code=2)
+    if db is not None:
+        try:
+            return DatabaseDataSource(db)
+        except FileNotFoundError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1)
+    if data_dir is not None:
+        return LocalFileDataSource(data_dir)
+    return None
 
 
 def _header(file: Path, suffix: str = "") -> None:
@@ -141,35 +173,47 @@ def _render_graph_text(graph, file: Path) -> int:
 
 @app.command()
 def check(
-    file: Path = typer.Option(..., "--file", "-f", help="Path to ETL config CSV"),
+    file: Path | None = FILE_OPT,
+    manifest: Path | None = MANIFEST_OPT,
     data_dir: Path | None = typer.Option(
         None, "--data-dir", "-d",
         help="Directory of local table snapshots for reconciliation (optional).",
     ),
+    db: str | None = typer.Option(
+        None, "--db",
+        help="Database for reconciliation: a DuckDB file or a postgres:// URL (optional).",
+    ),
 ) -> None:
     """Run all structural checks and report findings."""
-    jobs = _load(file)
+    jobs, path = _load_jobs(file, manifest)
     graph = build_graph(jobs)
     findings = detect_findings(jobs, graph)
-    if data_dir is not None:
-        findings = findings + reconcile_jobs(jobs, LocalFileDataSource(data_dir))
-    code = _render_check_text(findings, file)
+    data_source = _make_data_source(data_dir, db)
+    if data_source is not None:
+        findings = findings + reconcile_jobs(jobs, data_source)
+    code = _render_check_text(findings, path)
     raise typer.Exit(code=code)
 
 
 @app.command(name="list")
-def list_jobs(file: Path = typer.Option(..., "--file", "-f", help="Path to ETL config CSV")) -> None:
+def list_jobs(
+    file: Path | None = FILE_OPT,
+    manifest: Path | None = MANIFEST_OPT,
+) -> None:
     """List all ETL jobs in the config."""
-    jobs = _load(file)
-    _render_list_text(jobs, file)
+    jobs, path = _load_jobs(file, manifest)
+    _render_list_text(jobs, path)
 
 
 @app.command()
-def graph(file: Path = typer.Option(..., "--file", "-f", help="Path to ETL config CSV")) -> None:
+def graph(
+    file: Path | None = FILE_OPT,
+    manifest: Path | None = MANIFEST_OPT,
+) -> None:
     """Show the pipeline dependency graph and execution order."""
-    jobs = _load(file)
+    jobs, path = _load_jobs(file, manifest)
     g = build_graph(jobs)
-    code = _render_graph_text(g, file)
+    code = _render_graph_text(g, path)
     raise typer.Exit(code=code)
 
 
@@ -260,26 +304,44 @@ def _render_stats_text(stats: list[JobStatistics], file: Path) -> None:
     typer.echo("Statistics describe what happened numerically; run 'check' for findings.")
 
 
+def _require_data_source(data_dir: Path | None, db: str | None) -> DataSource:
+    ds = _make_data_source(data_dir, db)
+    if ds is None:
+        typer.echo("Error: provide --data-dir or --db.", err=True)
+        raise typer.Exit(code=2)
+    return ds
+
+
 @app.command()
 def stats(
-    file: Path = typer.Option(..., "--file", "-f", help="Path to ETL config CSV"),
-    data_dir: Path = typer.Option(
-        ..., "--data-dir", "-d", help="Directory of local table snapshots.",
+    file: Path | None = FILE_OPT,
+    manifest: Path | None = MANIFEST_OPT,
+    data_dir: Path | None = typer.Option(
+        None, "--data-dir", "-d", help="Directory of local table snapshots.",
+    ),
+    db: str | None = typer.Option(
+        None, "--db", help="Database: a DuckDB file or a postgres:// URL.",
     ),
 ) -> None:
     """Show per-job ETL statistics (row counts, loss, primary-key metrics)."""
-    jobs = _load(file)
-    stats = compute_job_statistics(jobs, LocalFileDataSource(data_dir))
-    _render_stats_text(stats, file)
+    jobs, path = _load_jobs(file, manifest)
+    ds = _require_data_source(data_dir, db)
+    stats = compute_job_statistics(jobs, ds)
+    _render_stats_text(stats, path)
 
 
 @app.command()
 def profile(
     table: str = typer.Option(..., "--table", "-t", help="Table name to profile (e.g. staging.orders)."),
-    data_dir: Path = typer.Option(..., "--data-dir", "-d", help="Directory of local table files."),
+    data_dir: Path | None = typer.Option(
+        None, "--data-dir", "-d", help="Directory of local table files.",
+    ),
+    db: str | None = typer.Option(
+        None, "--db", help="Database: a DuckDB file or a postgres:// URL.",
+    ),
 ) -> None:
     """Profile a table for data quality issues."""
-    ds = LocalFileDataSource(data_dir)
+    ds = _require_data_source(data_dir, db)
     try:
         tbl = profile_table(table, ds)
     except FileNotFoundError as exc:

@@ -1,10 +1,8 @@
-from pathlib import Path
-
 from fastapi import APIRouter, Depends
 
-from app.adapters.csv_adapter import CsvAdapter
-from app.adapters.local_file_data_source import LocalFileDataSource
-from app.api.deps import get_csv_path, get_optional_data_dir
+from app.adapters.base import PipelineSource
+from app.adapters.data_source import DataSource
+from app.api.deps import get_optional_data_source, get_pipeline_source
 from app.models.finding import ValidationFinding
 from app.services.finding_detector import detect_findings
 from app.services.graph_builder import build_graph
@@ -15,14 +13,15 @@ router = APIRouter()
 
 @router.get("/", response_model=list[ValidationFinding])
 def get_findings(
-    path: Path = Depends(get_csv_path),
-    data_dir: Path | None = Depends(get_optional_data_dir),
+    source: PipelineSource = Depends(get_pipeline_source),
+    data_source: DataSource | None = Depends(get_optional_data_source),
 ):
-    jobs = CsvAdapter(str(path)).load()
+    jobs = source.load()
     graph = build_graph(jobs)
     findings = detect_findings(jobs, graph)
-    # Reconciliation findings require local table snapshots; only included when
-    # a data_dir is supplied. Without it, behavior is unchanged (structural + SQL).
-    if data_dir is not None:
-        findings = findings + reconcile_jobs(jobs, LocalFileDataSource(data_dir))
+    # Reconciliation findings require table data (snapshots or a database);
+    # only included when a data_dir/db is supplied. Without it, behavior is
+    # unchanged (structural + SQL findings only).
+    if data_source is not None:
+        findings = findings + reconcile_jobs(jobs, data_source)
     return findings

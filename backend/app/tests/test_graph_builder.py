@@ -95,3 +95,49 @@ def test_disabled_jobs_included_in_graph():
     assert "raw.orders" in graph.nodes
     assert "staging.orders" in graph.nodes
     assert graph.has_edge("raw.orders", "staging.orders")
+
+
+# ── multi-parent dependencies (depends_on) ────────────────────────────────────
+
+def test_depends_on_adds_extra_edges():
+    jobs = [make_job(
+        config_key="etl_join",
+        source_table="staging.orders",
+        target_table="mart.enriched",
+        depends_on=["staging.orders", "staging.customers"],
+    )]
+    graph = build_graph(jobs)
+    assert graph.has_edge("staging.orders", "mart.enriched")
+    assert graph.has_edge("staging.customers", "mart.enriched")
+    assert graph["staging.customers"]["mart.enriched"]["config_key"] == "etl_join"
+
+
+def test_depends_on_duplicate_of_source_table_not_doubled():
+    jobs = [make_job(
+        source_table="src", target_table="tgt", depends_on=["src"],
+    )]
+    graph = build_graph(jobs)
+    assert graph.number_of_edges() == 1
+
+
+def test_execution_order_respects_depends_on():
+    jobs = [
+        make_job(config_key="a", source_table="raw.x", target_table="staging.x"),
+        make_job(config_key="b", source_table="raw.y", target_table="staging.y"),
+        make_job(
+            config_key="c",
+            source_table="staging.x",
+            target_table="mart.z",
+            depends_on=["staging.x", "staging.y"],
+        ),
+    ]
+    order = get_execution_order(build_graph(jobs))
+    assert order.index("staging.x") < order.index("mart.z")
+    assert order.index("staging.y") < order.index("mart.z")
+
+
+def test_empty_depends_on_is_backward_compatible():
+    jobs = [make_job(source_table="src", target_table="tgt")]
+    graph = build_graph(jobs)
+    assert set(graph.nodes) == {"src", "tgt"}
+    assert graph.number_of_edges() == 1

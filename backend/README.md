@@ -2,7 +2,7 @@
 
 > Local-first pipeline intelligence for Analytics Engineers.
 
-Open Steward scans SQL-config-driven ETL pipelines, reconstructs their dependencies, detects risky transformations, and validates data quality — from a simple CSV config plus your table data (CSV or Parquet).
+Open Steward scans SQL-driven ETL pipelines, reconstructs their dependencies, detects risky transformations, and validates data quality. Pipeline definitions come from a config CSV (`--file`) or a dbt manifest (`--manifest`); table data comes from local CSV/Parquet snapshots (`--data-dir`) or a database (`--db` — a DuckDB file or a `postgres://` URL with `${ENV_VAR}` credentials).
 
 ---
 
@@ -119,7 +119,7 @@ Exits with code `0` — no errors found. Exit code `1` means at least one error 
 
 ### 4. Check with local data snapshots (adds reconciliation)
 
-The `--data-dir` flag points Open Steward at local CSV or Parquet snapshots of source and target tables. These are compared to detect row loss, duplicate primary keys, and null primary keys.
+The `--data-dir` flag points Open Steward at local CSV or Parquet snapshots of source and target tables. These are compared to detect row loss, duplicate primary keys, and null primary keys. (`--db` does the same against a DuckDB database file or a `postgres://` URL instead of snapshots; `--manifest` swaps the config CSV for a dbt manifest — see the [root README](../README.md#dbt--database-support).)
 
 ```bash
 open-steward check --file demo_data/demo_config.csv --data-dir demo_data

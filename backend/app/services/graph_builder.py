@@ -9,6 +9,12 @@ def build_graph(jobs: list[PipelineJob]) -> nx.DiGraph:
         graph.add_node(job.source_table)
         graph.add_node(job.target_table)
         graph.add_edge(job.source_table, job.target_table, config_key=job.config_key)
+        # Additional upstream dependencies (e.g. multi-parent dbt models) each
+        # contribute an edge into the target. source_table stays the primary
+        # edge, so CSV configs (empty depends_on) are unaffected.
+        for dep in job.depends_on:
+            if dep != job.source_table:
+                graph.add_edge(dep, job.target_table, config_key=job.config_key)
     return graph
 
 

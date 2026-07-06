@@ -249,3 +249,86 @@ def test_get_profile_data_dir_path_traversal():
 def test_get_profile_data_dir_not_found():
     r = client.get("/profile/", params={"table": "staging.orders", "data_dir": "nope"})
     assert r.status_code == 404
+
+
+# --- dbt manifest source (manifest=) ---
+
+MANIFEST = "dbt_manifest_sample.json"
+
+
+def test_list_pipelines_from_manifest():
+    r = client.get("/pipelines/", params={"manifest": MANIFEST})
+    assert r.status_code == 200
+    jobs = {j["config_key"]: j for j in r.json()}
+    assert set(jobs) == {"stg_orders", "stg_customers", "orders_enriched"}
+    assert jobs["stg_orders"]["target_table"] == "staging.orders"
+    assert jobs["stg_orders"]["primary_key"] == "order_id"  # from the unique test
+    assert jobs["orders_enriched"]["depends_on"] == ["staging.orders", "staging.customers"]
+
+
+def test_graph_from_manifest_has_multi_parent_edges():
+    r = client.get("/graph/", params={"manifest": MANIFEST})
+    assert r.status_code == 200
+    data = r.json()
+    edges = {(e["source"], e["target"]) for e in data["edges"]}
+    assert ("staging.orders", "mart.orders_enriched") in edges
+    assert ("staging.customers", "mart.orders_enriched") in edges
+    assert data["cycle_detected"] is False
+
+
+def test_findings_from_manifest_with_reconciliation():
+    r = client.get("/findings/", params={"manifest": MANIFEST, "data_dir": "."})
+    assert r.status_code == 200
+    types = {f["finding_type"] for f in r.json()}
+    assert "select_star" in types              # stg_orders compiled SQL
+    assert "duplicate_primary_key" in types    # staging.customers dup customer_id
+
+
+def test_statistics_from_manifest():
+    r = client.get("/statistics/", params={"manifest": MANIFEST, "data_dir": "."})
+    assert r.status_code == 200
+    keys = [s["config_key"] for s in r.json()]
+    assert "stg_orders" in keys
+
+
+def test_file_and_manifest_together_rejected():
+    r = client.get("/pipelines/", params={"file": SAMPLE, "manifest": MANIFEST})
+    assert r.status_code == 400
+
+
+def test_neither_file_nor_manifest_rejected():
+    r = client.get("/pipelines/")
+    assert r.status_code == 400
+
+
+def test_manifest_path_traversal_rejected():
+    r = client.get("/pipelines/", params={"manifest": "../demo_data/raw/orders.csv"})
+    assert r.status_code == 400
+
+
+def test_manifest_not_found():
+    r = client.get("/pipelines/", params={"manifest": "nope.json"})
+    assert r.status_code == 404
+
+
+# --- database source (db=) ---
+
+def test_db_url_rejected_over_api():
+    r = client.get("/statistics/", params={"file": DEMO, "db": "postgres://u:p@h/db"})
+    assert r.status_code == 400
+    assert "not accepted over the API" in r.json()["detail"]
+
+
+def test_db_path_traversal_rejected():
+    r = client.get("/statistics/", params={"file": DEMO, "db": "../samples/sample_config.csv"})
+    assert r.status_code == 400
+
+
+def test_db_file_not_found():
+    r = client.get("/statistics/", params={"file": DEMO, "db": "missing.duckdb"})
+    assert r.status_code == 404
+
+
+def test_data_dir_and_db_together_rejected():
+    r = client.get("/statistics/", params={"file": DEMO, "data_dir": ".", "db": "x.duckdb"})
+    assert r.status_code == 400

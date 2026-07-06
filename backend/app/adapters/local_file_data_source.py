@@ -1,17 +1,23 @@
-import re
 from pathlib import Path
 
 import duckdb
 
-from app.models.column_info import ColumnInfo
+from app.adapters.duckdb_aggregate_source import DuckDbAggregateSource
 
 
-class LocalFileDataSource:
+class LocalFileDataSource(DuckDbAggregateSource):
+    """Aggregate-only DataSource over local CSV/Parquet snapshots.
+
+    A table named `schema.table` resolves to `<data_dir>/schema/table.parquet`
+    (preferred) or `.csv`. All aggregate queries are inherited from
+    DuckDbAggregateSource — only the table→relation resolution lives here.
+    """
+
     def __init__(self, data_dir: Path) -> None:
         self._data_dir = data_dir
         self._conn = duckdb.connect()
 
-    # ── private helpers ───────────────────────────────────────────────────────
+    # ── table resolution ──────────────────────────────────────────────────────
 
     def _resolve(self, table_name: str) -> Path | None:
         parts = table_name.lower().split(".", maxsplit=1)
@@ -32,7 +38,8 @@ class LocalFileDataSource:
             raise FileNotFoundError(f"No file found for table '{table_name}'.")
         return path
 
-    def _from_clause(self, path: Path) -> str:
+    def _relation(self, table_name: str) -> str:
+        path = self._require_path(table_name)
         safe = path.as_posix().replace("'", "''")
         if path.suffix == ".parquet":
             return f"read_parquet('{safe}')"
@@ -41,129 +48,5 @@ class LocalFileDataSource:
         # get_empty_string_count correctly distinct.
         return f"read_csv_auto('{safe}', allow_quoted_nulls=false)"
 
-    def _require_column(self, path: Path, column: str) -> str:
-        """Validate column name syntax and existence. Returns the quoted identifier."""
-        if not re.match(r"^[A-Za-z0-9_]+$", column):
-            raise ValueError(f"Invalid column name: {column!r}")
-        rows = self._conn.execute(
-            f"DESCRIBE SELECT * FROM {self._from_clause(path)}"
-        ).fetchall()
-        name_map = {row[0].lower(): row[0] for row in rows}
-        actual = name_map.get(column.lower())
-        if actual is None:
-            raise ValueError(f"Column '{column}' does not exist in the table.")
-        return f'"{actual}"'
-
-    # ── public interface ──────────────────────────────────────────────────────
-
     def table_exists(self, table_name: str) -> bool:
         return self._resolve(table_name) is not None
-
-    def get_schema(self, table_name: str) -> list[ColumnInfo]:
-        path = self._require_path(table_name)
-        rows = self._conn.execute(
-            f"DESCRIBE SELECT * FROM {self._from_clause(path)}"
-        ).fetchall()
-        return [ColumnInfo(name=row[0], dtype=row[1]) for row in rows]
-
-    def get_row_count(self, table_name: str) -> int:
-        path = self._require_path(table_name)
-        return self._conn.execute(
-            f"SELECT COUNT(*) FROM {self._from_clause(path)}"
-        ).fetchone()[0]
-
-    def get_distinct_count(self, table_name: str, column: str) -> int:
-        path = self._require_path(table_name)
-        col = self._require_column(path, column)
-        return self._conn.execute(
-            f"SELECT COUNT(DISTINCT {col}) FROM {self._from_clause(path)}"
-        ).fetchone()[0]
-
-    def get_null_count(self, table_name: str, column: str) -> int:
-        path = self._require_path(table_name)
-        col = self._require_column(path, column)
-        return self._conn.execute(
-            f"SELECT COUNT(*) FROM {self._from_clause(path)} WHERE {col} IS NULL"
-        ).fetchone()[0]
-
-    def get_empty_string_count(self, table_name: str, column: str) -> int:
-        path = self._require_path(table_name)
-        col = self._require_column(path, column)
-        return self._conn.execute(
-            f"SELECT COUNT(*) FROM {self._from_clause(path)} WHERE {col} = ''"
-        ).fetchone()[0]
-
-    def get_filtered_row_count(self, table_name: str, where_clause: str) -> int:
-        """Count rows in the table matching a WHERE predicate. The predicate is a
-        SQL fragment rendered by filter_analyzer (qualifiers stripped); callers
-        catch exceptions and fall back when it cannot be evaluated."""
-        path = self._require_path(table_name)
-        return self._conn.execute(
-            f"SELECT COUNT(*) FROM {self._from_clause(path)} WHERE {where_clause}"
-        ).fetchone()[0]
-
-    def _left_subquery(self, left_path: Path, where_clause: str | None) -> str:
-        fc = self._from_clause(left_path)
-        if where_clause:
-            return f"(SELECT * FROM {fc} WHERE {where_clause})"
-        return f"(SELECT * FROM {fc})"
-
-    def get_unmatched_left_count(
-        self,
-        left_table: str,
-        left_key: str,
-        right_table: str,
-        right_key: str,
-        where_clause: str | None = None,
-    ) -> int:
-        """Count left rows (after an optional WHERE) with no matching right key.
-        A scalar anti-join count — no join output is materialized."""
-        left_path = self._require_path(left_table)
-        right_path = self._require_path(right_table)
-        lkey = self._require_column(left_path, left_key)
-        rkey = self._require_column(right_path, right_key)
-        left_sub = self._left_subquery(left_path, where_clause)
-        right_fc = self._from_clause(right_path)
-        return self._conn.execute(
-            f"SELECT COUNT(*) FROM {left_sub} l "
-            f"WHERE NOT EXISTS (SELECT 1 FROM {right_fc} r WHERE r.{rkey} = l.{lkey})"
-        ).fetchone()[0]
-
-    def get_join_output_row_count(
-        self,
-        left_table: str,
-        left_key: str,
-        right_table: str,
-        right_key: str,
-        join_type: str,
-        where_clause: str | None = None,
-    ) -> int:
-        """Count the rows a simple INNER/LEFT join would produce (after an
-        optional left WHERE). Returns only the scalar count — no rows are
-        returned and the join result is never materialized for the caller."""
-        left_path = self._require_path(left_table)
-        right_path = self._require_path(right_table)
-        lkey = self._require_column(left_path, left_key)
-        rkey = self._require_column(right_path, right_key)
-        join_kw = "LEFT JOIN" if join_type.upper() == "LEFT" else "JOIN"
-        left_sub = self._left_subquery(left_path, where_clause)
-        right_fc = self._from_clause(right_path)
-        return self._conn.execute(
-            f"SELECT COUNT(*) FROM {left_sub} l "
-            f"{join_kw} {right_fc} r ON l.{lkey} = r.{rkey}"
-        ).fetchone()[0]
-
-    def get_duplicate_key_count(self, table_name: str, primary_key: str) -> int:
-        path = self._require_path(table_name)
-        col = self._require_column(path, primary_key)
-        fc = self._from_clause(path)
-        return self._conn.execute(
-            f"""
-            SELECT COUNT(*) FROM (
-                SELECT {col}, COUNT(*) AS cnt
-                FROM {fc}
-                GROUP BY {col}
-                HAVING cnt > 1
-            )
-            """
-        ).fetchone()[0]

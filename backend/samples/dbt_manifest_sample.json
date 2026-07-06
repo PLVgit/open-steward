@@ -1,0 +1,78 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "project_name": "demo_warehouse"
+  },
+  "nodes": {
+    "model.demo_warehouse.stg_orders": {
+      "resource_type": "model",
+      "package_name": "demo_warehouse",
+      "name": "stg_orders",
+      "schema": "staging",
+      "alias": "orders",
+      "description": "Load orders from the raw layer",
+      "config": { "materialized": "table", "enabled": true },
+      "depends_on": { "nodes": ["source.demo_warehouse.raw.orders"] },
+      "compiled_code": "SELECT * FROM raw.orders"
+    },
+    "model.demo_warehouse.stg_customers": {
+      "resource_type": "model",
+      "package_name": "demo_warehouse",
+      "name": "stg_customers",
+      "schema": "staging",
+      "alias": "customers",
+      "description": "Load customers with typed age",
+      "config": { "materialized": "table", "enabled": true },
+      "depends_on": { "nodes": ["source.demo_warehouse.raw.customers"] },
+      "compiled_code": "SELECT customer_id, name, email, CAST(age AS VARCHAR) AS age_str FROM raw.customers"
+    },
+    "model.demo_warehouse.orders_enriched": {
+      "resource_type": "model",
+      "package_name": "demo_warehouse",
+      "name": "orders_enriched",
+      "schema": "mart",
+      "alias": "orders_enriched",
+      "description": "Completed orders joined to customers",
+      "config": { "materialized": "table", "enabled": true },
+      "depends_on": {
+        "nodes": [
+          "model.demo_warehouse.stg_orders",
+          "model.demo_warehouse.stg_customers"
+        ]
+      },
+      "compiled_code": "SELECT o.order_id, o.amount, c.name FROM staging.orders o INNER JOIN staging.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed'"
+    },
+    "test.demo_warehouse.unique_stg_orders_order_id": {
+      "resource_type": "test",
+      "package_name": "demo_warehouse",
+      "name": "unique_stg_orders_order_id",
+      "column_name": "order_id",
+      "test_metadata": { "name": "unique", "kwargs": { "column_name": "order_id" } },
+      "depends_on": { "nodes": ["model.demo_warehouse.stg_orders"] }
+    },
+    "test.demo_warehouse.unique_stg_customers_customer_id": {
+      "resource_type": "test",
+      "package_name": "demo_warehouse",
+      "name": "unique_stg_customers_customer_id",
+      "column_name": "customer_id",
+      "test_metadata": { "name": "unique", "kwargs": { "column_name": "customer_id" } },
+      "depends_on": { "nodes": ["model.demo_warehouse.stg_customers"] }
+    }
+  },
+  "sources": {
+    "source.demo_warehouse.raw.orders": {
+      "resource_type": "source",
+      "package_name": "demo_warehouse",
+      "name": "orders",
+      "schema": "raw",
+      "identifier": "orders"
+    },
+    "source.demo_warehouse.raw.customers": {
+      "resource_type": "source",
+      "package_name": "demo_warehouse",
+      "name": "customers",
+      "schema": "raw",
+      "identifier": "customers"
+    }
+  }
+}

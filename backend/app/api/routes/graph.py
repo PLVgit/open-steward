@@ -1,9 +1,7 @@
-from pathlib import Path
-
 from fastapi import APIRouter, Depends
 
-from app.adapters.csv_adapter import CsvAdapter
-from app.api.deps import get_csv_path
+from app.adapters.base import PipelineSource
+from app.api.deps import get_pipeline_source
 from app.schemas.graph_schema import EdgeDetail, GraphResponse
 from app.services.graph_builder import build_graph, get_execution_order
 
@@ -11,8 +9,8 @@ router = APIRouter()
 
 
 @router.get("/", response_model=GraphResponse)
-def get_graph(path: Path = Depends(get_csv_path)):
-    jobs = CsvAdapter(str(path)).load()
+def get_graph(source: PipelineSource = Depends(get_pipeline_source)):
+    jobs = source.load()
     graph = build_graph(jobs)
 
     try:

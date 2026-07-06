@@ -1,18 +1,19 @@
 # Open Steward
 
-> **Local-first pipeline intelligence and data-quality platform for SQL-config-driven ETL workflows.**
+> **Local-first pipeline intelligence and data-quality platform for SQL-driven ETL workflows — config CSVs and dbt projects.**
 
 `Python` · `FastAPI` · `DuckDB` · `sqlglot` · `NetworkX` · `Typer` — `React` · `TypeScript` · `React Flow`
 
-**Local-first** · **Aggregate-only analysis** · **CLI + REST API + UI** · **300+ tests** · **MIT licensed**
+**Local-first** · **Aggregate-only analysis** · **CLI + REST API + UI** · **350+ tests** · **MIT licensed**
 
 ![Open Steward pipeline dependency graph in the control-room UI](docs/screenshots/graph-showcase.png)
 
-Open Steward reads SQL-config-driven ETL pipeline definitions, reconstructs the
-dependencies between jobs and tables, computes execution order, flags risky SQL
-transformations, **explains** row-count changes through filters and joins, and
-profiles final tables for data-quality issues — all from a simple CSV config plus
-optional local table snapshots, and all running right next to your data.
+Open Steward reads ETL pipeline definitions — from a **config CSV** or a **dbt
+manifest** — reconstructs the dependencies between jobs and tables, computes
+execution order, flags risky SQL transformations, **explains** row-count changes
+through filters and joins, and profiles final tables for data-quality issues.
+Data comes from local table snapshots or a **database** (DuckDB file, or Postgres
+via env-configured credentials), and everything runs right next to your data.
 
 ---
 
@@ -96,9 +97,10 @@ all-null, high-null-rate, constant-column, and high-empty-string findings.
 | Layer | Technologies |
 |---|---|
 | **Backend** | Python 3.11+, FastAPI, Pydantic, Typer (CLI) |
-| **Analysis engines** | NetworkX (graph + execution order), sqlglot (SQL AST), DuckDB (aggregate queries over CSV/Parquet) |
+| **Analysis engines** | NetworkX (graph + execution order), sqlglot (SQL AST), DuckDB (aggregate queries over CSV/Parquet, DuckDB databases, and attached Postgres) |
+| **Pipeline sources** | Config CSV, dbt `manifest.json` |
 | **Frontend** | React, TypeScript, Vite, Tailwind, shadcn/ui, React Flow (`@xyflow/react`) |
-| **Quality** | pytest + Vitest (300+ tests), GitHub Actions CI |
+| **Quality** | pytest + Vitest (350+ tests), GitHub Actions CI |
 
 ---
 
@@ -156,17 +158,45 @@ reflects the showcase. Full walkthrough: [`docs/SHOWCASE_WALKTHROUGH.md`](docs/S
 
 ---
 
+## dbt & database support
+
+Pipelines don't have to come from a CSV. Point Open Steward at a **dbt manifest**
+(`target/manifest.json` — prefer a compiled one) and every model becomes a job,
+with multi-parent lineage preserved and **primary keys derived from dbt's own
+`unique` tests**:
+
+```bash
+# from backend/
+open-steward list  --manifest samples/dbt_manifest_sample.json
+open-steward check --manifest samples/dbt_manifest_sample.json --data-dir demo_data
+```
+
+Data doesn't have to come from snapshots either. `--db` reconciles directly
+against a **DuckDB database file**, or a **Postgres** database via DuckDB's
+postgres extension — credentials stay in environment variables (`${VAR}`
+placeholders are expanded; the URL is never logged):
+
+```bash
+open-steward stats --file my_config.csv --db warehouse.duckdb
+open-steward check --file my_config.csv --db "postgres://steward:${PGPASSWORD}@localhost/warehouse"
+```
+
+Analysis stays **aggregate-only** in every mode: scalar counts, never raw rows.
+
+---
+
 ## Architecture
 
 The CLI and the REST API share one Python service layer; the React UI talks to the
 API through a dev proxy (no CORS setup needed).
 
 ```
-  ETL config CSV ─────┐
-                      ├──►  Backend (FastAPI + Typer share one service layer)
-  local table         │
-  snapshots ──────────┘     adapters/   csv_adapter · DataSource (aggregate-only, DuckDB)
-  (CSV / Parquet)           services/   graph_builder (NetworkX) · sql_analyzer (sqlglot)
+  config CSV /  ──────┐
+  dbt manifest        ├──►  Backend (FastAPI + Typer share one service layer)
+  local snapshots /   │
+  DuckDB / Postgres ──┘     adapters/   csv_adapter · dbt_manifest_adapter
+                            │           DataSource (aggregate-only): local files · database
+                            services/   graph_builder (NetworkX) · sql_analyzer (sqlglot)
                             │           reconciliation_engine ─ filter_analyzer
                             │                                 └ join_analyzer · join_statistics
                             │           dq_profiler · etl_statistics · finding_detector
@@ -194,10 +224,11 @@ Component docs: [`backend/README.md`](backend/README.md) · [`frontend/README.md
 
 ## Current limitations
 
-- No live database connectors yet — analysis runs over a config CSV plus local CSV/Parquet snapshots.
-- No dbt or ADF adapters yet.
+- Database connectivity covers **DuckDB files and Postgres** (attached read-only via DuckDB's postgres extension); other warehouses are not connected yet.
+- dbt support reads a documented subset of `manifest.json` (models, sources, seeds, snapshots, unique tests); `catalog.json`/`run_results.json` and dbt Cloud are not consumed. Prefer a **compiled** manifest — raw Jinja SQL is reported as unparseable.
+- No ADF adapter yet.
 - Transformation explanation covers **simple SQL only** — a single `SELECT`, one two-table INNER/LEFT join, a single equality `ON`, and a simple left-side `WHERE`. More complex SQL falls back to plain reconciliation.
-- Single-column primary and join keys.
+- Single-column primary and join keys; reconciliation models one primary source per job (multi-parent lineage is preserved in the graph).
 
 ---
 
@@ -205,8 +236,8 @@ Component docs: [`backend/README.md`](backend/README.md) · [`frontend/README.md
 
 | Area | Planned |
 |---|---|
-| **Adapters** | dbt adapter; ADF / config-source adapter |
-| **Connectivity** | live database connectors |
+| **Adapters** | ADF / config-source adapter; dbt `catalog.json` + freshness |
+| **Connectivity** | additional warehouse connectors (Snowflake, BigQuery) |
 | **Reconciliation** | composite join keys; RIGHT/FULL joins; multi-join and post-join `WHERE` |
 | **Configuration** | richer, configurable thresholds and row-loss tolerances |
 

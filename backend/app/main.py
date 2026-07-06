@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes import findings, graph, pipelines, profile, statistics
 
-app = FastAPI(title="Open Steward", version="0.1.0")
+app = FastAPI(title="Open Steward", version="0.2.0")
 
 app.include_router(pipelines.router, prefix="/pipelines", tags=["pipelines"])
 app.include_router(graph.router, prefix="/graph", tags=["graph"])
