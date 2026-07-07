@@ -50,3 +50,18 @@ class LocalFileDataSource(DuckDbAggregateSource):
 
     def table_exists(self, table_name: str) -> bool:
         return self._resolve(table_name) is not None
+
+    def list_tables(self) -> list[str]:
+        """All resolvable tables: `<file>` at the root and `<dir>.<file>` one
+        level deep, for .csv/.parquet files. Sorted, de-duplicated."""
+        if not self._data_dir.is_dir():
+            return []
+        tables: set[str] = set()
+        for entry in self._data_dir.iterdir():
+            if entry.is_file() and entry.suffix in (".csv", ".parquet"):
+                tables.add(entry.stem)
+            elif entry.is_dir():
+                for child in entry.iterdir():
+                    if child.is_file() and child.suffix in (".csv", ".parquet"):
+                        tables.add(f"{entry.name}.{child.stem}")
+        return sorted(tables)

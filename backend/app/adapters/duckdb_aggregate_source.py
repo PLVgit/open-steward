@@ -66,6 +66,51 @@ class DuckDbAggregateSource:
             f"SELECT COUNT(*) FROM {self._relation(table_name)}"
         ).fetchone()[0]
 
+    def get_profile_counts(
+        self, table_name: str, columns: list[str], text_columns: set[str]
+    ) -> tuple[int, dict[str, dict[str, int | None]]]:
+        """Row count plus per-column null/distinct(/empty-string) counts in a
+        SINGLE table scan — one SELECT regardless of column count, instead of
+        three queries per column. Semantics match the per-column methods
+        exactly: null = COUNT(*) − COUNT(col); DISTINCT ignores NULLs; the
+        empty-string count only applies to text columns ('' ≠ NULL)."""
+        rel = self._relation(table_name)
+        # Validate every column against ONE DESCRIBE, not one each.
+        rows = self._conn.execute(f"DESCRIBE SELECT * FROM {rel}").fetchall()
+        name_map = {row[0].lower(): row[0] for row in rows}
+        quoted: dict[str, str] = {}
+        for col in columns:
+            if not _VALID_COLUMN.match(col):
+                raise ValueError(f"Invalid column name: {col!r}")
+            actual = name_map.get(col.lower())
+            if actual is None:
+                raise ValueError(f"Column '{col}' does not exist in the table.")
+            quoted[col] = f'"{actual}"'
+
+        exprs = ["COUNT(*)"]
+        for col in columns:
+            q = quoted[col]
+            exprs.append(f"COUNT(*) - COUNT({q})")   # null count
+            exprs.append(f"COUNT(DISTINCT {q})")     # distinct count (NULLs excluded)
+            if col in text_columns:
+                exprs.append(f"COUNT(CASE WHEN {q} = '' THEN 1 END)")
+        row = self._conn.execute(f"SELECT {', '.join(exprs)} FROM {rel}").fetchone()
+
+        counts: dict[str, dict[str, int | None]] = {}
+        i = 1
+        for col in columns:
+            entry: dict[str, int | None] = {
+                "null_count": row[i],
+                "distinct_count": row[i + 1],
+                "empty_string_count": None,
+            }
+            i += 2
+            if col in text_columns:
+                entry["empty_string_count"] = row[i]
+                i += 1
+            counts[col] = entry
+        return row[0], counts
+
     def get_distinct_count(self, table_name: str, column: str) -> int:
         col = self._require_column(table_name, column)
         return self._conn.execute(

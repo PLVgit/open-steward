@@ -22,9 +22,15 @@ def analyze_job_join(
     ds: DataSource,
     source_count: int,
     target_count: int,
+    *,
+    row_loss_tolerance_pct: float = 0.0,
 ) -> list[ValidationFinding] | None:
     """Return staged + advisory join findings, or None when the job is not an
-    analyzable simple join (so the caller can fall back to other behavior)."""
+    analyzable simple join (so the caller can fall back to other behavior).
+
+    A loss at or below `row_loss_tolerance_pct` (relative to the expected
+    post-join count) suppresses the unexpected_row_loss_after_join warning;
+    advisory findings are unaffected."""
     info = extract_simple_join(job.sql_query)
     if info is None:
         return None
@@ -41,7 +47,10 @@ def analyze_job_join(
         # Any metric error (e.g. a join key column missing) -> fall back safely.
         return None
 
-    findings = [_staged_finding(job, info, metrics, target_count)]
+    findings: list[ValidationFinding] = []
+    staged = _staged_finding(job, info, metrics, target_count, row_loss_tolerance_pct)
+    if staged is not None:
+        findings.append(staged)
     findings.extend(_advisory_findings(job, info, metrics))
     return findings
 
@@ -87,8 +96,12 @@ def _compute_metrics(info: JoinInfo, ds: DataSource, source_count: int) -> _Metr
 
 
 def _staged_finding(
-    job: PipelineJob, info: JoinInfo, m: _Metrics, target_count: int
-) -> ValidationFinding:
+    job: PipelineJob,
+    info: JoinInfo,
+    m: _Metrics,
+    target_count: int,
+    tolerance_pct: float = 0.0,
+) -> ValidationFinding | None:
     filtered_out_rows = m.source_count - m.after_filter_count
     join_row_delta = m.expected_after_join_count - m.after_filter_count
 
@@ -121,6 +134,12 @@ def _staged_finding(
 
     if target_count < m.expected_after_join_count:
         unexpected_loss_rows = m.expected_after_join_count - target_count
+        if (
+            tolerance_pct > 0
+            and m.expected_after_join_count > 0
+            and (unexpected_loss_rows / m.expected_after_join_count) * 100 <= tolerance_pct
+        ):
+            return None  # loss within tolerance — suppress the warning
         parts.append(f"unexpected_loss_rows={unexpected_loss_rows}")
         return ValidationFinding(
             finding_type="unexpected_row_loss_after_join",

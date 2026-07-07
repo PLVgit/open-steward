@@ -115,3 +115,27 @@ def test_invalid_execution_order_raises_clear_error(tmp_path):
     path = _write(tmp_path, f"{_HEADERS}\netl_001,A,true,src,tgt,,abc,,")
     with pytest.raises(ValueError, match=r"Row 2.*execution_order"):
         CsvAdapter(path).load()
+
+
+def test_tags_column_parsed(tmp_path):
+    path = _write(
+        tmp_path,
+        f"{_HEADERS},tags\netl_001,A,true,src,tgt,,,,,\"temp, hide_from_graph\"",
+    )
+    assert CsvAdapter(path).load()[0].tags == ["temp", "hide_from_graph"]
+
+
+def test_tags_semicolon_separated(tmp_path):
+    path = _write(
+        tmp_path,
+        f"{_HEADERS},tags\netl_001,A,true,src,tgt,,,,,temp;fix",
+    )
+    assert CsvAdapter(path).load()[0].tags == ["temp", "fix"]
+
+
+def test_tags_absent_defaults_to_empty(tmp_path):
+    path = _write(
+        tmp_path,
+        f"{_HEADERS}\netl_001,A,true,src,tgt,,,,",
+    )
+    assert CsvAdapter(path).load()[0].tags == []

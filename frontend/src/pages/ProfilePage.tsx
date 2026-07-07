@@ -65,6 +65,19 @@ export function ProfilePage() {
   const [input, setInput] = useState(linked || DEFAULT_TABLE);
   const [state, setState] = useState<State>({ state: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
+  // Available tables (from /tables/) feed the input's suggestions.
+  const [tableSuggestions, setTableSuggestions] = useState<string[]>([]);
+
+  useEffect(() => {
+    api
+      .listTables()
+      .then((t) => {
+        if (Array.isArray(t?.tables)) setTableSuggestions(t.tables);
+      })
+      .catch(() => {
+        /* no suggestions — free text still works */
+      });
+  }, []);
 
   // React to in-app navigation that changes the query param while mounted.
   useEffect(() => {
@@ -129,10 +142,16 @@ export function ProfilePage() {
             <span className="eyebrow">Target table</span>
             <input
               aria-label="Table name"
+              list="table-suggestions"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               className="h-9 w-72 rounded-sm border border-input bg-background px-3 font-mono text-sm text-foreground outline-none transition focus:border-primary focus:ring-1 focus:ring-primary/40"
             />
+            <datalist id="table-suggestions">
+              {tableSuggestions.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
             <Button type="submit" size="sm">
               Profile
             </Button>

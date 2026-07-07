@@ -357,3 +357,47 @@ def test_health_api_alias():
     r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+# --- /tables ---
+
+def test_list_tables_default_data_dir():
+    r = client.get("/tables/")
+    assert r.status_code == 200
+    tables = r.json()["tables"]
+    assert "raw.orders" in tables
+    assert "staging.orders" in tables
+
+
+def test_list_tables_data_dir_traversal_rejected():
+    r = client.get("/tables/", params={"data_dir": "../samples"})
+    assert r.status_code == 400
+
+
+# --- thresholds / tolerance params ---
+
+def test_findings_row_loss_tolerance_param():
+    strict = client.get("/findings/", params={"file": DEMO, "data_dir": "."})
+    assert any(f["finding_type"] == "row_count_drop" for f in strict.json())
+    # demo etl_001 loses 10% — a 15% tolerance suppresses the warning
+    tolerant = client.get(
+        "/findings/", params={"file": DEMO, "data_dir": ".", "row_loss_tolerance": 15},
+    )
+    assert tolerant.status_code == 200
+    assert not any(f["finding_type"] == "row_count_drop" for f in tolerant.json())
+
+
+def test_profile_null_threshold_param():
+    default = client.get("/profile/", params={"table": "staging.orders", "data_dir": "."})
+    assert any(f["finding_type"] == "high_null_rate" for f in default.json()["findings"])
+    relaxed = client.get(
+        "/profile/",
+        params={"table": "staging.orders", "data_dir": ".", "null_threshold": 90},
+    )
+    assert relaxed.status_code == 200
+    assert not any(f["finding_type"] == "high_null_rate" for f in relaxed.json()["findings"])
+
+
+def test_threshold_params_validated():
+    r = client.get("/findings/", params={"file": DEMO, "row_loss_tolerance": 150})
+    assert r.status_code == 422

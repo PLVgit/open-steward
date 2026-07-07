@@ -49,6 +49,15 @@ class CsvAdapter:
                 f"Row {line}: invalid execution_order {raw_order!r}; expected an integer."
             ) from None
 
+        # Optional `tags` column: comma- or semicolon-separated labels
+        # (e.g. "temp;hide_from_graph"). Absent column → no tags.
+        raw_tags = (row.get("tags") or "").strip()
+        tags = (
+            [t.strip() for t in raw_tags.replace(";", ",").split(",") if t.strip()]
+            if raw_tags
+            else []
+        )
+
         return PipelineJob(
             config_key=row["config_key"],
             pipeline_name=row["pipeline_name"],
@@ -59,4 +68,5 @@ class CsvAdapter:
             execution_order=execution_order,
             primary_key=row.get("primary_key") or None,
             load_type=row.get("load_type") or None,
+            tags=tags,
         )

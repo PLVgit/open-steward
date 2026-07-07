@@ -5,11 +5,12 @@ import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { Panel, PanelBody, PanelHeader } from "@/components/ui/panel";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatusDot } from "@/components/ui/status-dot";
 import { PipelineFlow } from "@/components/graph/PipelineFlow";
 import { api, ApiError } from "@/lib/api";
-import { buildFlowElements } from "@/lib/graphLayout";
+import { buildFlowElements, filterGraph, hiddenTables } from "@/lib/graphLayout";
 import { useConfig } from "@/context/ConfigContext";
-import type { GraphResponse } from "@/lib/types";
+import type { GraphResponse, PipelineJob } from "@/lib/types";
 
 type State =
   | { state: "loading" }
@@ -59,13 +60,15 @@ function ExecutionOrder({ order }: { order: string[] }) {
 export function GraphPage() {
   const { configFile } = useConfig();
   const [state, setState] = useState<State>({ state: "loading" });
-  const [jobNames, setJobNames] = useState<Map<string, string>>(new Map());
+  const [jobs, setJobs] = useState<PipelineJob[]>([]);
+  const [showHidden, setShowHidden] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setState({ state: "loading" });
-    setJobNames(new Map());
+    setJobs([]);
+    setShowHidden(false);
     api
       .getGraph(configFile)
       .then((graph) => {
@@ -79,24 +82,35 @@ export function GraphPage() {
             : "Could not reach the backend. Is it running on http://localhost:8000?";
         setState({ state: "error", message });
       });
-    // Pipeline names enrich the edge inspector. Failures are non-fatal — the
-    // inspector simply omits the name.
+    // Jobs enrich the edge inspector (names) and drive hide_from_graph
+    // filtering. Failures are non-fatal — the graph shows everything.
     api
       .listPipelines(configFile)
-      .then((jobs) => {
-        if (!cancelled) setJobNames(new Map(jobs.map((j) => [j.config_key, j.pipeline_name])));
+      .then((js) => {
+        if (!cancelled && Array.isArray(js)) setJobs(js);
       })
       .catch(() => {
-        /* inspector shows config_key only */
+        /* inspector shows config_key only; nothing hidden */
       });
     return () => {
       cancelled = true;
     };
   }, [configFile, reloadKey]);
 
+  const jobNames = useMemo(
+    () => new Map(jobs.map((j) => [j.config_key, j.pipeline_name])),
+    [jobs],
+  );
+  // Tables tagged hide_from_graph — a visibility concern only; the analysis
+  // pages still include them.
+  const hidden = useMemo(() => hiddenTables(jobs), [jobs]);
+
   const elements = useMemo(
-    () => (state.state === "ok" ? buildFlowElements(state.graph) : null),
-    [state],
+    () =>
+      state.state === "ok"
+        ? buildFlowElements(filterGraph(state.graph, showHidden ? new Set<string>() : hidden))
+        : null,
+    [state, hidden, showHidden],
   );
 
   const isEmpty = state.state === "ok" && state.graph.nodes.length === 0;
@@ -157,6 +171,20 @@ export function GraphPage() {
             No tables found in this config.
           </PanelBody>
         </Panel>
+      )}
+
+      {state.state === "ok" && hidden.size > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-sm border border-border bg-card px-3 py-2">
+          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <StatusDot status="idle" />
+            {hidden.size} table{hidden.size === 1 ? "" : "s"} tagged{" "}
+            <code className="font-mono text-foreground/80">hide_from_graph</code>
+            {showHidden ? " (shown)" : ""}
+          </span>
+          <Button size="sm" variant="ghost" onClick={() => setShowHidden((v) => !v)}>
+            {showHidden ? "Hide hidden" : "Show hidden"}
+          </Button>
+        </div>
       )}
 
       {state.state === "ok" && elements && !isEmpty && (

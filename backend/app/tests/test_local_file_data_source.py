@@ -201,3 +201,48 @@ def test_nonexistent_column_raises_value_error(tmp_path):
     _write_csv(tmp_path / "raw" / "orders.csv", "id,name\n1,Alice\n")
     with pytest.raises(ValueError, match="does not exist"):
         LocalFileDataSource(tmp_path).get_null_count("raw.orders", "nonexistent")
+
+
+# ── list_tables ───────────────────────────────────────────────────────────────
+
+def test_list_tables_nested_and_root(tmp_path):
+    _write_csv(tmp_path / "raw" / "orders.csv", "id\n1\n")
+    _write_csv(tmp_path / "staging" / "orders.csv", "id\n1\n")
+    _write_csv(tmp_path / "lookup.csv", "id\n1\n")
+    assert LocalFileDataSource(tmp_path).list_tables() == [
+        "lookup", "raw.orders", "staging.orders",
+    ]
+
+
+def test_list_tables_dedupes_parquet_and_csv(tmp_path):
+    _write_csv(tmp_path / "raw" / "orders.csv", "id\n1\n")
+    _write_parquet(tmp_path / "raw" / "orders.parquet", "id\n1\n")
+    assert LocalFileDataSource(tmp_path).list_tables() == ["raw.orders"]
+
+
+def test_list_tables_missing_dir_empty(tmp_path):
+    assert LocalFileDataSource(tmp_path / "nope").list_tables() == []
+
+
+# ── single-pass profile counts ────────────────────────────────────────────────
+
+def test_get_profile_counts_matches_per_column_methods(tmp_path):
+    _write_csv(
+        tmp_path / "raw" / "orders.csv",
+        'id,note\n1,"a"\n2,""\n3,\n3,"a"\n',  # note: one empty string, one NULL
+    )
+    ds = LocalFileDataSource(tmp_path)
+    row_count, counts = ds.get_profile_counts("raw.orders", ["id", "note"], {"note"})
+    assert row_count == ds.get_row_count("raw.orders") == 4
+    assert counts["id"]["null_count"] == ds.get_null_count("raw.orders", "id") == 0
+    assert counts["id"]["distinct_count"] == ds.get_distinct_count("raw.orders", "id") == 3
+    assert counts["id"]["empty_string_count"] is None  # not a text column
+    assert counts["note"]["null_count"] == ds.get_null_count("raw.orders", "note") == 1
+    assert counts["note"]["empty_string_count"] == ds.get_empty_string_count("raw.orders", "note") == 1
+
+
+def test_get_profile_counts_invalid_column_raises(tmp_path):
+    _write_csv(tmp_path / "raw" / "orders.csv", "id\n1\n")
+    ds = LocalFileDataSource(tmp_path)
+    with pytest.raises(ValueError, match="does not exist"):
+        ds.get_profile_counts("raw.orders", ["ghost"], set())

@@ -99,8 +99,16 @@ class DbtManifestAdapter:
                 primary_key=pk_by_model.get(unique_id),
                 load_type=self._load_type(node),
                 depends_on=parents,
+                tags=self._tags(node),
             ))
         return jobs
+
+    @staticmethod
+    def _tags(node: dict) -> list[str]:
+        """Model tags (top-level + config), de-duplicated, order-preserving.
+        A dbt model tagged `hide_from_graph` is hidden from the UI graph."""
+        raw = list(node.get("tags") or []) + list((node.get("config") or {}).get("tags") or [])
+        return list(dict.fromkeys(t for t in raw if isinstance(t, str) and t))
 
     # ── node helpers ──────────────────────────────────────────────────────────
 

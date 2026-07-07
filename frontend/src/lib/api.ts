@@ -60,4 +60,7 @@ export const api = {
 
   listConfigs: () =>
     request<{ files: string[]; manifests: string[] }>("/configs/", {}),
+
+  listTables: (dataDir = ".") =>
+    request<{ tables: string[] }>("/tables/", { data_dir: dataDir }),
 };

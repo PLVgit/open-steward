@@ -93,6 +93,23 @@ describe("GraphPage", () => {
     expect(screen.getByText("staging.orders")).toBeInTheDocument();
   });
 
+  it("hides tables tagged hide_from_graph and can reveal them", async () => {
+    mockGraphResponse(DAG, [
+      {
+        config_key: "etl_001",
+        pipeline_name: "Load Orders",
+        enabled: true,
+        target_table: "staging.orders",
+        tags: ["hide_from_graph"],
+      },
+    ]);
+    renderPage();
+    // staging.orders (and its edge) hidden by default.
+    await waitFor(() => expect(screen.getByTestId("flow")).toHaveTextContent("1 nodes, 0 edges"));
+    fireEvent.click(screen.getByRole("button", { name: /Show hidden/ }));
+    await waitFor(() => expect(screen.getByTestId("flow")).toHaveTextContent("2 nodes, 1 edges"));
+  });
+
   it("hides the execution-order rail when a cycle is detected", async () => {
     mockGraphResponse({
       nodes: ["a", "b"],

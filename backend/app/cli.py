@@ -221,6 +221,10 @@ def check(
         "error", "--fail-on",
         help="Exit non-zero on findings of this severity or worse: 'error' (default) or 'warning'.",
     ),
+    row_loss_tolerance: float = typer.Option(
+        0.0, "--row-loss-tolerance", min=0.0, max=100.0,
+        help="Suppress row-loss warnings at or below this loss percentage (default 0 = strict).",
+    ),
 ) -> None:
     """Run all structural checks and report findings."""
     output = _validated_output(output)
@@ -233,7 +237,9 @@ def check(
     findings = detect_findings(jobs, graph)
     data_source = _make_data_source(data_dir, db)
     if data_source is not None:
-        findings = findings + reconcile_jobs(jobs, data_source)
+        findings = findings + reconcile_jobs(
+            jobs, data_source, row_loss_tolerance_pct=row_loss_tolerance
+        )
 
     errors = sum(1 for f in findings if f.severity == "error")
     warnings = sum(1 for f in findings if f.severity == "warning")
@@ -407,6 +413,14 @@ def profile(
         None, "--db", help="Database: a DuckDB file or a postgres:// URL.",
     ),
     output: str = OUTPUT_OPT,
+    null_threshold: float = typer.Option(
+        20.0, "--null-threshold", min=0.0, max=100.0,
+        help="Flag columns whose null rate is at or above this percentage.",
+    ),
+    empty_threshold: float = typer.Option(
+        10.0, "--empty-threshold", min=0.0, max=100.0,
+        help="Flag text columns whose empty-string rate is at or above this percentage.",
+    ),
 ) -> None:
     """Profile a table for data quality issues."""
     output = _validated_output(output)
@@ -416,7 +430,11 @@ def profile(
     except FileNotFoundError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1)
-    findings = detect_profile_findings(tbl)
+    findings = detect_profile_findings(
+        tbl,
+        null_rate_threshold_pct=null_threshold,
+        empty_string_threshold_pct=empty_threshold,
+    )
     if output == "json":
         _echo_json({
             "profile": tbl.model_dump(mode="json"),
@@ -426,6 +444,30 @@ def profile(
         raise typer.Exit(code=code)
     code = _render_profile_text(tbl, findings)
     raise typer.Exit(code=code)
+
+
+@app.command()
+def tables(
+    data_dir: Path | None = typer.Option(
+        None, "--data-dir", "-d", help="Directory of local table files.",
+    ),
+    db: str | None = typer.Option(
+        None, "--db", help="Database: a DuckDB file or a postgres:// URL.",
+    ),
+    output: str = OUTPUT_OPT,
+) -> None:
+    """List the tables available in a data directory or database."""
+    output = _validated_output(output)
+    ds = _require_data_source(data_dir, db)
+    names = ds.list_tables()
+    if output == "json":
+        _echo_json(names)
+        return
+    if not names:
+        typer.echo("No tables found.")
+        return
+    for name in names:
+        typer.echo(name)
 
 
 @app.command()

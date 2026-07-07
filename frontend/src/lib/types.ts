@@ -11,6 +11,8 @@ export interface PipelineJob {
   execution_order: number | null;
   primary_key: string | null;
   load_type: string | null;
+  depends_on?: string[];
+  tags?: string[];
 }
 
 export type Severity = "error" | "warning" | "info";

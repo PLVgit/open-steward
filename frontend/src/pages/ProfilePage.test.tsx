@@ -150,6 +150,26 @@ describe("ProfilePage", () => {
     );
   });
 
+  it("feeds table suggestions from the /tables/ endpoint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: unknown) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () =>
+            String(url).includes("/tables/") ? { tables: ["raw.from_server"] } : SAMPLE,
+        }),
+      ),
+    );
+    const { container } = renderPage();
+    await waitFor(() =>
+      expect(
+        container.querySelector('#table-suggestions option[value="raw.from_server"]'),
+      ).toBeInTheDocument(),
+    );
+  });
+
   it("pre-selects the table from the ?table= query param", async () => {
     const fetchMock = mockProfile(SAMPLE);
     vi.stubGlobal("fetch", fetchMock);

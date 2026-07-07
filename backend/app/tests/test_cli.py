@@ -444,3 +444,70 @@ def test_invalid_fail_on_rejected():
     result = runner.invoke(app, ["check", "--file", _SAMPLE, "--fail-on", "info"])
     assert result.exit_code == 2
     assert "invalid --fail-on" in result.output
+
+
+# ── tables ────────────────────────────────────────────────────────────────────
+
+def test_tables_lists_data_dir(tmp_path):
+    (tmp_path / "raw").mkdir()
+    (tmp_path / "raw" / "orders.csv").write_text("id\n1\n", encoding="utf-8")
+    (tmp_path / "lookup.csv").write_text("id\n1\n", encoding="utf-8")
+    result = runner.invoke(app, ["tables", "--data-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "raw.orders" in result.output
+    assert "lookup" in result.output
+
+
+def test_tables_json_from_database(tmp_path):
+    db = _make_warehouse(tmp_path)
+    result = runner.invoke(app, ["tables", "--db", db, "--output", "json"])
+    assert result.exit_code == 0
+    names = _json.loads(result.output)
+    assert "raw.orders" in names
+    assert "staging.orders" in names
+
+
+def test_tables_requires_data_source():
+    result = runner.invoke(app, ["tables"])
+    assert result.exit_code == 2
+
+
+# ── thresholds / tolerance flags ──────────────────────────────────────────────
+
+def _half_null_table(tmp_path):
+    (tmp_path / "staging").mkdir()
+    (tmp_path / "staging" / "orders.csv").write_text(
+        "id,note\n1,a\n2,\n3,b\n4,\n", encoding="utf-8"  # note: 50% null
+    )
+
+
+def test_profile_null_threshold_flag(tmp_path):
+    _half_null_table(tmp_path)
+    default = runner.invoke(app, ["profile", "--table", "staging.orders", "--data-dir", str(tmp_path)])
+    assert "high_null_rate" in default.output  # 50% ≥ default 20%
+    relaxed = runner.invoke(app, [
+        "profile", "--table", "staging.orders", "--data-dir", str(tmp_path),
+        "--null-threshold", "60",
+    ])
+    assert "high_null_rate" not in relaxed.output
+
+
+def test_check_row_loss_tolerance_flag(tmp_path):
+    config = tmp_path / "config.csv"
+    config.write_text(
+        "config_key,pipeline_name,enabled,source_table,target_table,load_type\n"
+        "etl_001,Load Orders,true,raw.orders,staging.orders,full\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "data" / "raw").mkdir(parents=True)
+    (tmp_path / "data" / "staging").mkdir(parents=True)
+    (tmp_path / "data" / "raw" / "orders.csv").write_text("id\n1\n2\n3\n", encoding="utf-8")
+    (tmp_path / "data" / "staging" / "orders.csv").write_text("id\n1\n2\n", encoding="utf-8")
+
+    strict = runner.invoke(app, ["check", "--file", str(config), "--data-dir", str(tmp_path / "data")])
+    assert "row_count_drop" in strict.output
+    tolerant = runner.invoke(app, [
+        "check", "--file", str(config), "--data-dir", str(tmp_path / "data"),
+        "--row-loss-tolerance", "50",
+    ])
+    assert "row_count_drop" not in tolerant.output

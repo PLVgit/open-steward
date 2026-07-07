@@ -93,3 +93,19 @@ class DatabaseDataSource(DuckDbAggregateSource):
             return True
         except Exception:
             return False
+
+    def list_tables(self) -> list[str]:
+        """All user tables/views as `schema.table` (bare name for the default
+        `main` schema). System schemas and catalogs are excluded."""
+        rows = self._conn.execute(
+            "SELECT table_catalog, table_schema, table_name "
+            "FROM information_schema.tables "
+            "WHERE table_schema NOT IN ('information_schema', 'pg_catalog') "
+            "AND table_catalog NOT IN ('system', 'temp')"
+        ).fetchall()
+        tables: set[str] = set()
+        for catalog, schema, name in rows:
+            if self._catalog is not None and catalog != self._catalog:
+                continue
+            tables.add(name if schema == "main" else f"{schema}.{name}")
+        return sorted(tables)

@@ -1,7 +1,31 @@
 import { Position } from "@xyflow/react";
 import type { Edge, Node } from "@xyflow/react";
 
-import type { GraphResponse } from "./types";
+import type { GraphResponse, PipelineJob } from "./types";
+
+// Jobs tagged with this hide their target table from the graph view. Analysis
+// (findings, reconciliation, statistics) is never affected by tags.
+export const HIDE_FROM_GRAPH_TAG = "hide_from_graph";
+
+/** Tables produced by jobs tagged `hide_from_graph`. */
+export function hiddenTables(jobs: PipelineJob[]): Set<string> {
+  return new Set(
+    jobs
+      .filter((j) => j.tags?.includes(HIDE_FROM_GRAPH_TAG))
+      .map((j) => j.target_table),
+  );
+}
+
+/** Remove hidden tables (and their edges) from a graph response. Pure; an
+ *  empty hidden set returns the input unchanged. */
+export function filterGraph(graph: GraphResponse, hidden: Set<string>): GraphResponse {
+  if (hidden.size === 0) return graph;
+  return {
+    ...graph,
+    nodes: graph.nodes.filter((n) => !hidden.has(n)),
+    edges: graph.edges.filter((e) => !hidden.has(e.source) && !hidden.has(e.target)),
+  };
+}
 
 // Layout geometry, in React Flow coordinate units. Generous gaps give the
 // dependency lines (especially the fan-out from high-degree source tables) room

@@ -360,3 +360,64 @@ def test_join_job_surfaces_staged_finding(tmp_path):
     types = [f.finding_type for f in reconcile_jobs([job], ds)]
     assert "row_count_change_explained_by_transformations" in types
     assert "possible_row_multiplication" in types
+
+
+# ── row-loss tolerance ────────────────────────────────────────────────────────
+
+def test_row_loss_tolerance_suppresses_small_drop(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_2)  # 3 → 2 = 33.3% loss
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None)], ds, row_loss_tolerance_pct=50.0)
+    assert not any(f.finding_type == "row_count_drop" for f in findings)
+
+
+def test_row_loss_tolerance_still_flags_larger_drop(tmp_path):
+    _csv(tmp_path, "raw.orders", ORDERS_3)
+    _csv(tmp_path, "staging.orders", ORDERS_2)  # 33.3% loss > 10% tolerance
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None)], ds, row_loss_tolerance_pct=10.0)
+    assert any(f.finding_type == "row_count_drop" for f in findings)
+
+
+def test_zero_tolerance_default_never_suppresses(tmp_path):
+    # A 1-row loss out of many rounds to 0.0% in messages, but the default
+    # tolerance must still flag it (comparison uses the unrounded pct).
+    _csv(tmp_path, "raw.orders", "id\n" + "\n".join(str(i) for i in range(1, 2001)) + "\n")
+    _csv(tmp_path, "staging.orders", "id\n" + "\n".join(str(i) for i in range(1, 2000)) + "\n")
+    ds = LocalFileDataSource(tmp_path)
+    findings = reconcile_jobs([_job(pk=None)], ds)  # default tolerance 0.0
+    assert any(f.finding_type == "row_count_drop" for f in findings)
+
+
+def test_row_loss_tolerance_applies_to_filter_unexpected_loss(tmp_path):
+    # WHERE explains 3 → 2; target has 1 more row missing (50% of expected).
+    _csv(tmp_path, "raw.orders", "id,status\n1,paid\n2,paid\n3,other\n")
+    _csv(tmp_path, "staging.orders", "id,status\n1,paid\n")
+    ds = LocalFileDataSource(tmp_path)
+    job = _job(pk=None, sql="SELECT * FROM raw.orders WHERE status = 'paid'")
+
+    strict = reconcile_jobs([job], ds)
+    assert any(f.finding_type == "unexpected_row_loss" for f in strict)
+
+    tolerant = reconcile_jobs([job], ds, row_loss_tolerance_pct=60.0)
+    assert not any(f.finding_type == "unexpected_row_loss" for f in tolerant)
+
+
+def test_row_loss_tolerance_applies_to_join_loss(tmp_path):
+    # INNER join with all keys matching (unique right) => expected 4; target 3
+    # (25% unexpected loss). Tolerance 30 suppresses; strict flags.
+    _csv(tmp_path, "raw.orders", "id,k\n1,a\n2,b\n3,c\n4,d\n")
+    _csv(tmp_path, "raw.dim", "k,name\na,x\nb,y\nc,z\nd,w\n")
+    _csv(tmp_path, "staging.orders", "id\n1\n2\n3\n")
+    ds = LocalFileDataSource(tmp_path)
+    job = _job(
+        pk=None,
+        sql="SELECT o.id FROM raw.orders o INNER JOIN raw.dim d ON o.k = d.k",
+    )
+
+    strict = reconcile_jobs([job], ds)
+    assert any(f.finding_type == "unexpected_row_loss_after_join" for f in strict)
+
+    tolerant = reconcile_jobs([job], ds, row_loss_tolerance_pct=30.0)
+    assert not any(f.finding_type == "unexpected_row_loss_after_join" for f in tolerant)

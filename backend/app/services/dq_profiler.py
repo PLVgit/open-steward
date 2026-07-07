@@ -14,22 +14,30 @@ def profile_table(table_name: str, data_source: DataSource) -> TableProfile:
     if not data_source.table_exists(table_name):
         raise FileNotFoundError(f"No table found for '{table_name}'.")
     schema = data_source.get_schema(table_name)
-    row_count = data_source.get_row_count(table_name)
+
+    valid_cols = [c for c in schema if _VALID_NAME.match(c.name)]
+    text_cols = {c.name for c in valid_cols if c.dtype.upper().startswith("VARCHAR")}
+
+    # Single-pass profiling: one scan computes every column's counts, so a
+    # wide table doesn't fan out into three queries per column.
+    if valid_cols:
+        row_count, counts = data_source.get_profile_counts(
+            table_name, [c.name for c in valid_cols], text_cols
+        )
+    else:
+        row_count, counts = data_source.get_row_count(table_name), {}
 
     columns: list[ColumnProfile] = []
-    for col_info in schema:
-        col_name = col_info.name
-        if not _VALID_NAME.match(col_name):
-            continue
-
-        null_count = data_source.get_null_count(table_name, col_name)
-        distinct_count = data_source.get_distinct_count(table_name, col_name)
+    for col_info in valid_cols:
+        c = counts[col_info.name]
+        null_count = int(c["null_count"] or 0)
+        distinct_count = int(c["distinct_count"] or 0)
 
         null_pct = round(null_count / row_count * 100, 1) if row_count > 0 else 0.0
         distinct_pct = round(distinct_count / row_count * 100, 1) if row_count > 0 else 0.0
 
-        if col_info.dtype.upper().startswith("VARCHAR"):
-            empty_string_count: int | None = data_source.get_empty_string_count(table_name, col_name)
+        if col_info.name in text_cols:
+            empty_string_count: int | None = int(c["empty_string_count"] or 0)
             empty_string_pct: float | None = (
                 round(empty_string_count / row_count * 100, 1) if row_count > 0 else 0.0
             )
@@ -38,7 +46,7 @@ def profile_table(table_name: str, data_source: DataSource) -> TableProfile:
             empty_string_pct = None
 
         columns.append(ColumnProfile(
-            column_name=col_name,
+            column_name=col_info.name,
             dtype=col_info.dtype,
             row_count=row_count,
             null_count=null_count,

@@ -44,14 +44,30 @@ from app.services.join_statistics import analyze_job_join
 def reconcile_jobs(
     jobs: list[PipelineJob],
     data_source: DataSource,
+    *,
+    row_loss_tolerance_pct: float = 0.0,
 ) -> list[ValidationFinding]:
+    """Reconcile each job. `row_loss_tolerance_pct` suppresses row-loss
+    warnings (row_count_drop / unexpected_row_loss / unexpected_row_loss_after_join)
+    whose loss percentage is at or below the tolerance. The default 0.0 keeps
+    the existing strict behavior — every unexplained loss is flagged."""
     findings: list[ValidationFinding] = []
     for job in jobs:
-        findings.extend(_reconcile_job(job, data_source))
+        findings.extend(_reconcile_job(job, data_source, row_loss_tolerance_pct))
     return findings
 
 
-def _reconcile_job(job: PipelineJob, ds: DataSource) -> list[ValidationFinding]:
+def _within_tolerance(lost_rows: int, base_count: int, tolerance_pct: float) -> bool:
+    """True when a loss is small enough to tolerate. Uses the *unrounded*
+    percentage, and a zero tolerance never suppresses a real loss."""
+    if tolerance_pct <= 0 or lost_rows <= 0 or base_count <= 0:
+        return False
+    return (lost_rows / base_count) * 100 <= tolerance_pct
+
+
+def _reconcile_job(
+    job: PipelineJob, ds: DataSource, tolerance_pct: float = 0.0
+) -> list[ValidationFinding]:
     if not job.enabled:
         return []
     if not ds.table_exists(job.source_table) or not ds.table_exists(job.target_table):
@@ -75,7 +91,7 @@ def _reconcile_job(job: PipelineJob, ds: DataSource) -> list[ValidationFinding]:
         ))
 
     if job.load_type == "full" and target_count > 0:
-        findings.extend(_row_change_findings(job, ds, source_count, target_count))
+        findings.extend(_row_change_findings(job, ds, source_count, target_count, tolerance_pct))
 
     if job.primary_key:
         try:
@@ -132,12 +148,15 @@ def _row_change_findings(
     ds: DataSource,
     source_count: int,
     target_count: int,
+    tolerance_pct: float = 0.0,
 ) -> list[ValidationFinding]:
     """Explain a full-load row-count change, transformation-aware where possible:
     a simple two-table join (staged) first, then a simple single-source WHERE
     filter, otherwise fall back to a plain row_count_drop when rows were lost."""
     # 1) Simple two-table join (optionally after a simple left WHERE).
-    join_findings = analyze_job_join(job, ds, source_count, target_count)
+    join_findings = analyze_job_join(
+        job, ds, source_count, target_count, row_loss_tolerance_pct=tolerance_pct
+    )
     if join_findings is not None:
         return join_findings
 
@@ -149,10 +168,12 @@ def _row_change_findings(
         except Exception:
             expected = None
         if expected is not None:
-            return _filter_aware_findings(job, source_count, target_count, expected)
+            return _filter_aware_findings(job, source_count, target_count, expected, tolerance_pct)
 
     # 3) No analyzable transformation: flag an unexplained drop only.
     if target_count < source_count:
+        if _within_tolerance(source_count - target_count, source_count, tolerance_pct):
+            return []
         return [_row_count_drop(job, source_count, target_count)]
     return []
 
@@ -183,6 +204,7 @@ def _filter_aware_findings(
     source_count: int,
     target_count: int,
     expected: int,
+    tolerance_pct: float = 0.0,
 ) -> list[ValidationFinding]:
     filtered_out_rows = source_count - expected
     filtered_out_pct = round(filtered_out_rows / source_count * 100, 1) if source_count > 0 else 0.0
@@ -209,6 +231,8 @@ def _filter_aware_findings(
 
     if target_count < expected:
         unexpected_loss_rows = expected - target_count
+        if _within_tolerance(unexpected_loss_rows, expected, tolerance_pct):
+            return []
         unexpected_loss_pct = (
             round(unexpected_loss_rows / expected * 100, 1) if expected > 0 else 0.0
         )

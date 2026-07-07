@@ -277,3 +277,22 @@ def test_shipped_sample_manifest_loads():
     assert jobs["stg_orders"].primary_key == "order_id"  # from the unique test
     assert jobs["orders_enriched"].depends_on == ["staging.orders", "staging.customers"]
     assert jobs["orders_enriched"].load_type == "full"
+
+
+def test_tags_merged_from_node_and_config(tmp_path):
+    node = _model("m", depends_on=["source.proj.raw.x"])
+    node["tags"] = ["nightly", "temp"]
+    node["config"]["tags"] = ["temp", "hide_from_graph"]
+    path = _write_manifest(tmp_path, {
+        "nodes": {"model.proj.m": node},
+        "sources": {"source.proj.raw.x": _source("x")},
+    })
+    assert DbtManifestAdapter(path).load()[0].tags == ["nightly", "temp", "hide_from_graph"]
+
+
+def test_no_tags_defaults_to_empty(tmp_path):
+    path = _write_manifest(tmp_path, {
+        "nodes": {"model.proj.m": _model("m", depends_on=["source.proj.raw.x"])},
+        "sources": {"source.proj.raw.x": _source("x")},
+    })
+    assert DbtManifestAdapter(path).load()[0].tags == []

@@ -16,3 +16,7 @@ class PipelineJob(BaseModel):
     # so existing behavior is unchanged. source_table remains the primary
     # dependency used by reconciliation.
     depends_on: list[str] = Field(default_factory=list)
+    # Free-form labels (dbt tags / optional CSV `tags` column). The UI uses the
+    # `hide_from_graph` tag to hide a job's target table from the graph view —
+    # findings, reconciliation and statistics are never affected by tags.
+    tags: list[str] = Field(default_factory=list)

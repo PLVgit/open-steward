@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
 from app import __version__
-from app.api.routes import configs, findings, graph, pipelines, profile, statistics
+from app.api.routes import configs, findings, graph, pipelines, profile, statistics, tables
 
 app = FastAPI(title="Open Steward", version=__version__)
 
@@ -15,6 +15,7 @@ _ROUTERS = (
     (statistics.router, "/statistics", "statistics"),
     (profile.router, "/profile", "profile"),
     (configs.router, "/configs", "configs"),
+    (tables.router, "/tables", "tables"),
 )
 
 for router, prefix, tag in _ROUTERS:
@@ -87,11 +88,11 @@ async def ui_index() -> FileResponse | JSONResponse:
 
 
 # All canonical API roots (each served at "/<root>/" and "/api/<root>/").
-_API_ROOTS = {"pipelines", "graph", "findings", "statistics", "profile", "configs"}
+_API_ROOTS = {"pipelines", "graph", "findings", "statistics", "profile", "configs", "tables"}
 # Roots that exist ONLY as API namespaces — no SPA route lives there. The other
 # roots double as SPA client routes (/graph, /findings, …), which own the
 # slashless form in the browser; their API canonical stays the slashed form.
-_API_ONLY_ROOTS = {"pipelines", "configs"}
+_API_ONLY_ROOTS = {"pipelines", "configs", "tables"}
 
 _JSON_404 = {"detail": "Not Found"}
 

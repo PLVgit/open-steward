@@ -150,3 +150,13 @@ def test_corrupt_database_file_raises_clear_error(tmp_path):
     bogus.write_text("this is not a duckdb file", encoding="utf-8")
     with pytest.raises(ValueError, match="Could not open database file"):
         DatabaseDataSource(str(bogus))
+
+
+# ── list_tables ───────────────────────────────────────────────────────────────
+
+def test_list_tables_from_database(ds):
+    tables = ds.list_tables()
+    assert "raw.orders" in tables
+    assert "staging.orders" in tables
+    assert "staging.customers" in tables
+    assert not any(t.startswith("information_schema") for t in tables)

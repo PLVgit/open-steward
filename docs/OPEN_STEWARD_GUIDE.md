@@ -33,8 +33,17 @@ and Node toolchain.
 
 ## 2. What Open Steward does today
 
-All of the following are implemented and covered by tests (340 backend tests,
-61 frontend tests):
+All of the following are implemented and covered by tests (366 backend tests,
+66 frontend tests):
+
+- **Graph table hiding** — jobs tagged `hide_from_graph` (a dbt model tag, or a
+  value in the optional CSV `tags` column) hide their target table from the UI
+  graph, with a one-click "Show hidden" toggle. Tags never affect findings,
+  reconciliation or statistics.
+- **Tunable strictness** — row-loss tolerance for reconciliation and null/empty
+  profiling thresholds, as CLI flags and API params (defaults unchanged).
+- **Single-pass profiling** — one table scan computes every column's counts,
+  instead of three queries per column.
 
 - **CSV-driven pipeline config ingestion** — parse a config CSV into typed
   `PipelineJob` objects.
@@ -332,6 +341,20 @@ open-steward stats --file demo_data/demo_config.csv --db warehouse.duckdb
 open-steward check --file demo_data/demo_config.csv --db "postgres://steward:${PGPASSWORD}@localhost/warehouse"
 ```
 
+**Discover tables** — list what a data directory or database contains:
+
+```bash
+open-steward tables --data-dir demo_data
+open-steward tables --db warehouse.duckdb --output json
+```
+
+**Tune the strictness** — tolerances and thresholds (defaults unchanged):
+
+```bash
+open-steward check   --file config.csv --data-dir data --row-loss-tolerance 5
+open-steward profile --table staging.orders --data-dir data --null-threshold 40 --empty-threshold 25
+```
+
 **CI integration** — `--output json` on `list`/`check`/`stats`/`profile` emits
 machine-readable output, and `--fail-on warning` makes `check` strict:
 
@@ -379,7 +402,12 @@ curl "http://localhost:8000/profile/?table=staging.orders&data_dir=."
 | `GET /statistics/` | `file`/`manifest`, `data_dir` or `db` | Per-job statistics |
 | `GET /profile/` | `table`, `data_dir` or `db` | Table profile + data-quality findings |
 | `GET /configs/` | — | Config CSVs + dbt manifests available in the config directory |
+| `GET /tables/` | `data_dir` or `db` | Tables available in the data directory / database |
 | `GET /health` | — | `{status, version}` liveness |
+
+Tuning params: `/findings/` accepts `row_loss_tolerance` (0–100, default 0 =
+strict) to suppress row-loss warnings at or below that percentage; `/profile/`
+accepts `null_threshold` (default 20) and `empty_threshold` (default 10).
 
 Every config endpoint takes exactly one pipeline source: `file` (config CSV) or
 `manifest` (dbt manifest.json), both confined to `backend/samples/`. Data comes

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildFlowElements } from "./graphLayout";
+import { buildFlowElements, filterGraph, hiddenTables } from "./graphLayout";
 import type { GraphResponse } from "./types";
 
 function graph(partial: Partial<GraphResponse>): GraphResponse {
@@ -78,5 +78,49 @@ describe("buildFlowElements", () => {
     const { nodes, edges } = buildFlowElements(graph({ nodes: [], edges: [] }));
     expect(nodes).toEqual([]);
     expect(edges).toEqual([]);
+  });
+});
+
+describe("hiddenTables / filterGraph", () => {
+  const job = (target: string, tags?: string[]) => ({
+    config_key: "etl",
+    pipeline_name: "Job",
+    enabled: true,
+    source_table: "src",
+    target_table: target,
+    sql_query: null,
+    execution_order: null,
+    primary_key: null,
+    load_type: null,
+    tags,
+  });
+
+  it("collects targets of jobs tagged hide_from_graph", () => {
+    const hidden = hiddenTables([
+      job("staging.tmp_fix", ["hide_from_graph"]),
+      job("staging.orders", ["nightly"]),
+      job("staging.other"),
+    ]);
+    expect(hidden).toEqual(new Set(["staging.tmp_fix"]));
+  });
+
+  it("filters hidden nodes and their edges", () => {
+    const g = graph({
+      nodes: ["a", "tmp", "c"],
+      edges: [
+        { source: "a", target: "tmp", config_key: "e1" },
+        { source: "tmp", target: "c", config_key: "e2" },
+        { source: "a", target: "c", config_key: "e3" },
+      ],
+      execution_order: ["a", "tmp", "c"],
+    });
+    const filtered = filterGraph(g, new Set(["tmp"]));
+    expect(filtered.nodes).toEqual(["a", "c"]);
+    expect(filtered.edges.map((e) => e.config_key)).toEqual(["e3"]);
+  });
+
+  it("returns the graph unchanged for an empty hidden set", () => {
+    const g = graph({ nodes: ["a"], edges: [], execution_order: ["a"] });
+    expect(filterGraph(g, new Set())).toBe(g);
   });
 });

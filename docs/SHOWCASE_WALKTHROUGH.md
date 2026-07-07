@@ -54,7 +54,7 @@ only SQL findings.)
 
 ```bash
 cd backend
-python -m pytest -q        # 340 passed (a few UI-serving tests are skipped if the frontend isn't built)
+python -m pytest -q        # 366 passed (a few UI-serving tests are skipped if the frontend isn't built)
 ```
 
 ### CLI checks (run from `backend/`)
