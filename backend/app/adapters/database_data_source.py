@@ -38,20 +38,38 @@ def _expand_env(value: str) -> str:
     )
 
 
+def _redact_url(url: str) -> str:
+    """Mask the userinfo section of a connection URL (user:password@ → ***@)."""
+    return re.sub(r"://[^@/]+@", "://***@", url)
+
+
+def _sanitize(message: str, secret_url: str) -> str:
+    """Ensure a driver error never echoes credentials back to the user."""
+    return message.replace(secret_url, _redact_url(secret_url))
+
+
 class DatabaseDataSource(DuckDbAggregateSource):
     def __init__(self, db: str) -> None:
         target = _expand_env(db)
         if target.startswith(_PG_PREFIXES):
             self._conn = duckdb.connect()
-            self._conn.execute("INSTALL postgres; LOAD postgres;")
             safe_url = target.replace("'", "''")
-            self._conn.execute(f"ATTACH '{safe_url}' AS ext (TYPE postgres, READ_ONLY)")
+            try:
+                self._conn.execute("INSTALL postgres; LOAD postgres;")
+                self._conn.execute(f"ATTACH '{safe_url}' AS ext (TYPE postgres, READ_ONLY)")
+            except Exception as exc:
+                raise ValueError(
+                    f"Could not connect to the database: {_sanitize(str(exc), target)}"
+                ) from None
             self._catalog = "ext"
         else:
             path = Path(target)
             if not path.is_file():
                 raise FileNotFoundError(f"No database file found at '{db}'.")
-            self._conn = duckdb.connect(str(path), read_only=True)
+            try:
+                self._conn = duckdb.connect(str(path), read_only=True)
+            except Exception as exc:
+                raise ValueError(f"Could not open database file '{db}': {exc}") from None
             self._catalog = None
 
     # ── table resolution ──────────────────────────────────────────────────────

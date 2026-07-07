@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 
@@ -10,8 +11,24 @@ from app.adapters.database_data_source import DatabaseDataSource
 from app.adapters.dbt_manifest_adapter import DbtManifestAdapter
 from app.adapters.local_file_data_source import LocalFileDataSource
 
-SAMPLES_DIR = (Path(__file__).parent.parent.parent / "samples").resolve()
-DATA_ROOT = (Path(__file__).parent.parent.parent / "demo_data").resolve()
+_DEFAULT_SAMPLES_DIR = (Path(__file__).parent.parent.parent / "samples").resolve()
+_DEFAULT_DATA_ROOT = (Path(__file__).parent.parent.parent / "demo_data").resolve()
+
+
+def get_config_dir() -> Path:
+    """Root directory for config CSVs / dbt manifests served over the API.
+    Defaults to the bundled samples/; point OPEN_STEWARD_CONFIG_DIR at your own
+    project to analyze it through the UI/API. Read per-request so it can be
+    changed without code edits."""
+    override = os.environ.get("OPEN_STEWARD_CONFIG_DIR")
+    return Path(override).resolve() if override else _DEFAULT_SAMPLES_DIR
+
+
+def get_data_root() -> Path:
+    """Root directory for table snapshots / .duckdb files served over the API.
+    Defaults to the bundled demo_data/; override with OPEN_STEWARD_DATA_DIR."""
+    override = os.environ.get("OPEN_STEWARD_DATA_DIR")
+    return Path(override).resolve() if override else _DEFAULT_DATA_ROOT
 
 # A table name is "schema.table" or "table" — word characters only. This blocks
 # path traversal via the table parameter, since the data source resolves the
@@ -20,9 +37,10 @@ _TABLE_NAME = re.compile(r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)?$")
 
 
 def _resolve_samples_file(name: str) -> Path:
-    resolved = (SAMPLES_DIR / name).resolve()
-    if not resolved.is_relative_to(SAMPLES_DIR):
-        raise HTTPException(status_code=400, detail="File path is outside the allowed samples directory.")
+    root = get_config_dir()
+    resolved = (root / name).resolve()
+    if not resolved.is_relative_to(root):
+        raise HTTPException(status_code=400, detail="File path is outside the allowed config directory.")
     if not resolved.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {name}")
     return resolved
@@ -42,9 +60,10 @@ def get_pipeline_source(
 
 
 def _resolve_data_dir(data_dir: str) -> Path:
-    """Resolve a data_dir query value to a directory confined under DATA_ROOT."""
-    resolved = (DATA_ROOT / data_dir).resolve()
-    if not resolved.is_relative_to(DATA_ROOT):
+    """Resolve a data_dir query value to a directory confined under the data root."""
+    root = get_data_root()
+    resolved = (root / data_dir).resolve()
+    if not resolved.is_relative_to(root):
         raise HTTPException(status_code=400, detail="Data directory is outside the allowed data root.")
     if not resolved.is_dir():
         raise HTTPException(status_code=404, detail=f"Data directory not found: {data_dir}")
@@ -62,8 +81,9 @@ def _resolve_db_file(db: str) -> Path:
             status_code=400,
             detail="Database URLs are not accepted over the API; use the CLI with an environment-configured URL.",
         )
-    resolved = (DATA_ROOT / db).resolve()
-    if not resolved.is_relative_to(DATA_ROOT):
+    root = get_data_root()
+    resolved = (root / db).resolve()
+    if not resolved.is_relative_to(root):
         raise HTTPException(status_code=400, detail="Database file is outside the allowed data root.")
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail=f"Database file not found: {db}")

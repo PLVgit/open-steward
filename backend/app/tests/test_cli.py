@@ -351,3 +351,96 @@ def test_serve_command_registered():
     result = runner.invoke(app, ["serve", "--help"])
     assert result.exit_code == 0
     assert "--port" in result.output
+
+
+# ── --version ─────────────────────────────────────────────────────────────────
+
+def test_version_flag():
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "open-steward 0.2" in result.output
+
+
+# ── --output json ─────────────────────────────────────────────────────────────
+
+import json as _json
+
+
+def test_list_output_json():
+    result = runner.invoke(app, ["list", "--file", _SAMPLE, "--output", "json"])
+    assert result.exit_code == 0
+    jobs = _json.loads(result.output)
+    assert isinstance(jobs, list) and len(jobs) == 7
+    assert jobs[0]["config_key"] == "etl_001"
+
+
+def test_check_output_json_has_summary_and_findings():
+    result = runner.invoke(app, ["check", "--file", _SAMPLE, "--output", "json"])
+    assert result.exit_code == 1  # sample config contains error findings
+    payload = _json.loads(result.output)
+    assert payload["summary"]["errors"] >= 1
+    assert payload["summary"]["total"] == len(payload["findings"])
+    assert all("finding_type" in f and "severity" in f for f in payload["findings"])
+
+
+def test_check_output_json_clean_config_exits_zero(tmp_path):
+    csv = tmp_path / "clean.csv"
+    csv.write_text(
+        "config_key,pipeline_name,enabled,source_table,target_table\n"
+        "etl_001,Load Orders,true,raw.orders,staging.orders\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["check", "--file", str(csv), "--output", "json"])
+    assert result.exit_code == 0
+    assert _json.loads(result.output)["summary"]["total"] == 0
+
+
+def test_stats_output_json(tmp_path):
+    config, data = _stats_setup(tmp_path)
+    result = runner.invoke(
+        app, ["stats", "--file", str(config), "--data-dir", str(data), "--output", "json"],
+    )
+    assert result.exit_code == 0
+    stats = _json.loads(result.output)
+    assert stats[0]["config_key"] == "etl_001"
+    assert stats[0]["lost_rows"] == 2
+
+
+def test_profile_output_json(tmp_path):
+    (tmp_path / "staging").mkdir()
+    (tmp_path / "staging" / "orders.csv").write_text("id,name\n1,Alice\n2,Bob\n", encoding="utf-8")
+    result = runner.invoke(
+        app, ["profile", "--table", "staging.orders", "--data-dir", str(tmp_path), "--output", "json"],
+    )
+    assert result.exit_code == 0
+    payload = _json.loads(result.output)
+    assert payload["profile"]["row_count"] == 2
+    assert "findings" in payload
+
+
+def test_invalid_output_value_rejected():
+    result = runner.invoke(app, ["list", "--file", _SAMPLE, "--output", "yaml"])
+    assert result.exit_code == 2
+    assert "invalid --output" in result.output
+
+
+# ── --fail-on ─────────────────────────────────────────────────────────────────
+
+def test_fail_on_warning_fails_on_warnings(tmp_path):
+    # select_star is a warning: default passes, --fail-on warning fails.
+    csv = tmp_path / "warn.csv"
+    csv.write_text(
+        "config_key,pipeline_name,enabled,source_table,target_table,sql_query\n"
+        'etl_001,Load Orders,true,raw.orders,staging.orders,SELECT * FROM raw.orders\n',
+        encoding="utf-8",
+    )
+    default = runner.invoke(app, ["check", "--file", str(csv)])
+    assert default.exit_code == 0
+    strict = runner.invoke(app, ["check", "--file", str(csv), "--fail-on", "warning"])
+    assert strict.exit_code == 1
+
+
+def test_invalid_fail_on_rejected():
+    result = runner.invoke(app, ["check", "--file", _SAMPLE, "--fail-on", "info"])
+    assert result.exit_code == 2
+    assert "invalid --fail-on" in result.output

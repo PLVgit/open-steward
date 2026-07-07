@@ -55,15 +55,27 @@ class DbtManifestAdapter:
         self._sources = sources
         pk_by_model = self._primary_keys_from_tests(nodes)
 
+        # Enabled models live in `nodes`; disabled ones live in the top-level
+        # `disabled` mapping (unique_id → list of node dicts). Both are mapped,
+        # so a disabled dbt model shows up as a disabled job — exactly like a
+        # disabled row in a config CSV (and disabled_dependency checks work).
+        model_items: list[tuple[str, dict, bool]] = [
+            (uid, node, False)
+            for uid, node in nodes.items()
+            if node.get("resource_type") == "model"
+        ]
+        for uid, entries in (data.get("disabled") or {}).items():
+            for node in entries if isinstance(entries, list) else [entries]:
+                if isinstance(node, dict) and node.get("resource_type") == "model":
+                    model_items.append((uid, node, True))
+
         jobs: list[PipelineJob] = []
         seen_names: dict[str, int] = {}
-        for unique_id, node in nodes.items():
-            if node.get("resource_type") != "model":
-                continue
+        for unique_id, node, force_disabled in model_items:
             if self._materialization(node) == "ephemeral":
                 continue  # not materialized; resolved through, not emitted
 
-            parents = self._resolve_parents(unique_id, visited=set())
+            parents = self._parents_of(node, visited=set())
             if not parents:
                 continue  # no resolvable upstream — nothing to reconcile against
 
@@ -79,7 +91,7 @@ class DbtManifestAdapter:
             jobs.append(PipelineJob(
                 config_key=config_key,
                 pipeline_name=description.splitlines()[0] if description else name,
-                enabled=self._enabled(node),
+                enabled=False if force_disabled else self._enabled(node),
                 source_table=parents[0],
                 target_table=self._relation(node),
                 sql_query=self._sql(node),
@@ -123,12 +135,9 @@ class DbtManifestAdapter:
         materialized = DbtManifestAdapter._materialization(node)
         return {"table": "full", "incremental": "incremental"}.get(materialized, materialized)
 
-    def _resolve_parents(self, unique_id: str, visited: set[str]) -> list[str]:
+    def _parents_of(self, node: dict, visited: set[str]) -> list[str]:
         """Resolve a node's upstream dependencies to relations, looking through
         ephemeral models to their own parents. Order-preserving, de-duplicated."""
-        node = self._nodes.get(unique_id)
-        if node is None:
-            return []
         parents: list[str] = []
         for dep_id in (node.get("depends_on") or {}).get("nodes") or []:
             if dep_id in visited:
@@ -149,7 +158,7 @@ class DbtManifestAdapter:
             return []
         resource_type = node.get("resource_type")
         if resource_type == "model" and self._materialization(node) == "ephemeral":
-            return self._resolve_parents(dep_id, visited)  # look through
+            return self._parents_of(node, visited)  # look through
         if resource_type in ("model", "seed", "snapshot"):
             return [self._relation(node)]
         return []  # tests, macros, exposures, …

@@ -135,6 +135,39 @@ def test_disabled_model_is_marked_disabled(tmp_path):
     assert jobs[0].enabled is False
 
 
+def test_models_in_disabled_section_become_disabled_jobs(tmp_path):
+    # dbt puts fully disabled models in the top-level `disabled` mapping
+    # (unique_id → list of node dicts), not in `nodes`. They must appear as
+    # disabled jobs — just like a disabled row in a config CSV.
+    path = _write_manifest(tmp_path, {
+        "nodes": {
+            "model.proj.active": _model("active", depends_on=["source.proj.raw.x"]),
+        },
+        "sources": {"source.proj.raw.x": _source("x")},
+        "disabled": {
+            "model.proj.retired": [
+                _model("retired", depends_on=["source.proj.raw.x"]),
+            ],
+        },
+    })
+    jobs = {j.config_key: j for j in DbtManifestAdapter(path).load()}
+    assert set(jobs) == {"active", "retired"}
+    assert jobs["active"].enabled is True
+    assert jobs["retired"].enabled is False
+    assert jobs["retired"].source_table == "raw.x"
+
+
+def test_disabled_section_non_models_ignored(tmp_path):
+    path = _write_manifest(tmp_path, {
+        "nodes": {"model.proj.m": _model("m", depends_on=["source.proj.raw.x"])},
+        "sources": {"source.proj.raw.x": _source("x")},
+        "disabled": {
+            "test.proj.some_test": [{"resource_type": "test", "name": "some_test"}],
+        },
+    })
+    assert [j.config_key for j in DbtManifestAdapter(path).load()] == ["m"]
+
+
 def test_primary_key_derived_from_unique_test(tmp_path):
     path = _write_manifest(tmp_path, {
         "nodes": {

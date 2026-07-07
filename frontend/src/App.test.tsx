@@ -66,6 +66,28 @@ describe("App shell", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
   });
 
+  it("feeds the config suggestions from the /configs/ endpoint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: unknown) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () =>
+            String(url).includes("/configs/")
+              ? { files: ["from_server.csv"], manifests: [] }
+              : [],
+        }),
+      ),
+    );
+    const { container } = renderAt("/");
+    await waitFor(() =>
+      expect(
+        container.querySelector('#config-suggestions option[value="from_server.csv"]'),
+      ).toBeInTheDocument(),
+    );
+  });
+
   it("applies a new config file on Enter, not on every keystroke", async () => {
     const fetchMock = vi
       .fn()

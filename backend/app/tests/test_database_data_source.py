@@ -134,3 +134,19 @@ def test_env_var_expansion(monkeypatch):
     assert _expand_env("postgres://u:${OS_TEST_PW}@h/db") == "postgres://u:s3cret@h/db"
     # Unset variables are left as-is (no silent empty credentials).
     assert _expand_env("postgres://u:${OS_UNSET_VAR}@h/db") == "postgres://u:${OS_UNSET_VAR}@h/db"
+
+
+def test_redact_url_masks_credentials():
+    from app.adapters.database_data_source import _redact_url
+
+    assert _redact_url("postgres://user:s3cret@host:5432/db") == "postgres://***@host:5432/db"
+    assert _redact_url("postgres://host/db") == "postgres://host/db"  # nothing to mask
+
+
+# ── connection error handling ─────────────────────────────────────────────────
+
+def test_corrupt_database_file_raises_clear_error(tmp_path):
+    bogus = tmp_path / "not_a_db.duckdb"
+    bogus.write_text("this is not a duckdb file", encoding="utf-8")
+    with pytest.raises(ValueError, match="Could not open database file"):
+        DatabaseDataSource(str(bogus))

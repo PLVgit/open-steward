@@ -332,3 +332,28 @@ def test_db_file_not_found():
 def test_data_dir_and_db_together_rejected():
     r = client.get("/statistics/", params={"file": DEMO, "data_dir": ".", "db": "x.duckdb"})
     assert r.status_code == 400
+
+
+# --- /configs and /health ---
+
+def test_list_configs_default_dir():
+    r = client.get("/configs/")
+    assert r.status_code == 200
+    data = r.json()
+    assert "demo_config.csv" in data["files"]
+    assert "showcase_config.csv" in data["files"]
+    assert "dbt_manifest_sample.json" in data["manifests"]
+
+
+def test_health_reports_ok_and_version():
+    r = client.get("/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["version"]
+
+
+def test_health_api_alias():
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"

@@ -57,4 +57,7 @@ export const api = {
 
   profileTable: (table: string, dataDir = ".") =>
     request<ProfileResponse>("/profile/", { table, data_dir: dataDir }),
+
+  listConfigs: () =>
+    request<{ files: string[]; manifests: string[] }>("/configs/", {}),
 };

@@ -191,6 +191,19 @@ open-steward check --file my_config.csv --db "postgres://steward:${PGPASSWORD}@l
 
 Analysis stays **aggregate-only** in every mode: scalar counts, never raw rows.
 
+**Point the served app at your own project** — the UI/API config and data roots
+are env-configurable (defaults remain the bundled demo):
+
+```bash
+OPEN_STEWARD_CONFIG_DIR=/path/to/your/configs OPEN_STEWARD_DATA_DIR=/path/to/your/data open-steward serve
+```
+
+**Wire it into CI** — machine-readable output and a strictness dial:
+
+```bash
+open-steward check --file config.csv --data-dir data --output json --fail-on warning
+```
+
 ---
 
 ## Architecture

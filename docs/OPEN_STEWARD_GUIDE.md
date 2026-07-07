@@ -33,8 +33,8 @@ and Node toolchain.
 
 ## 2. What Open Steward does today
 
-All of the following are implemented and covered by tests (319 backend tests,
-60 frontend tests):
+All of the following are implemented and covered by tests (340 backend tests,
+61 frontend tests):
 
 - **CSV-driven pipeline config ingestion** — parse a config CSV into typed
   `PipelineJob` objects.
@@ -332,8 +332,17 @@ open-steward stats --file demo_data/demo_config.csv --db warehouse.duckdb
 open-steward check --file demo_data/demo_config.csv --db "postgres://steward:${PGPASSWORD}@localhost/warehouse"
 ```
 
-Exit codes: `check` and `profile` exit `1` on any error-severity finding, `graph`
-exits `1` on a cycle (CI-friendly); `list` and `stats` always exit `0`.
+**CI integration** — `--output json` on `list`/`check`/`stats`/`profile` emits
+machine-readable output, and `--fail-on warning` makes `check` strict:
+
+```bash
+open-steward check --file config.csv --data-dir data --output json --fail-on warning
+```
+
+Exit codes: `check` exits `1` on any error-severity finding (or warnings too
+with `--fail-on warning`), `profile` exits `1` on error findings, `graph` exits
+`1` on a cycle (CI-friendly); `list` and `stats` always exit `0`.
+`open-steward --version` prints the version.
 
 ---
 
@@ -369,18 +378,29 @@ curl "http://localhost:8000/profile/?table=staging.orders&data_dir=."
 | `GET /findings/` | `file`/`manifest`, `data_dir` or `db` *(optional)* | Structural + SQL findings; reconciliation findings too when data is given |
 | `GET /statistics/` | `file`/`manifest`, `data_dir` or `db` | Per-job statistics |
 | `GET /profile/` | `table`, `data_dir` or `db` | Table profile + data-quality findings |
+| `GET /configs/` | — | Config CSVs + dbt manifests available in the config directory |
+| `GET /health` | — | `{status, version}` liveness |
 
 Every config endpoint takes exactly one pipeline source: `file` (config CSV) or
 `manifest` (dbt manifest.json), both confined to `backend/samples/`. Data comes
 from `data_dir` (snapshots) or `db` (a `.duckdb` file confined to
 `backend/demo_data/`) — at most one of the two.
 
-Path safety: `file`/`manifest` are confined to `backend/samples/`, `data_dir`
-and `db` to `backend/demo_data/`, and `table` is validated against a strict
-pattern — so the HTTP surface cannot read arbitrary files. **Database URLs
-(credentials) are never accepted over the API**; connection strings are a CLI
-concern, configured through environment variables. (The CLI accepts arbitrary
-local paths.)
+**Point the API at your own project:** the config and data roots default to the
+bundled `backend/samples/` and `backend/demo_data/`, and can be overridden with
+environment variables before starting the server:
+
+```bash
+OPEN_STEWARD_CONFIG_DIR=/path/to/your/configs   # config CSVs / dbt manifests
+OPEN_STEWARD_DATA_DIR=/path/to/your/data        # snapshots / .duckdb files
+```
+
+Path safety: `file`/`manifest` are confined to the config directory, `data_dir`
+and `db` to the data root (whatever they're set to), and `table` is validated
+against a strict pattern — so the HTTP surface cannot read arbitrary files.
+**Database URLs (credentials) are never accepted over the API**; connection
+strings are a CLI concern, configured through environment variables. (The CLI
+accepts arbitrary local paths.)
 
 ---
 

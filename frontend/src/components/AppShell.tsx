@@ -9,6 +9,7 @@ import {
   Workflow,
 } from "lucide-react";
 
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { StatusDot } from "@/components/ui/status-dot";
 import { useConfig } from "@/context/ConfigContext";
@@ -21,7 +22,7 @@ const NAV = [
   { to: "/profile", label: "Profile", icon: FileSearch, end: false },
 ];
 
-// Bundled sample configs, offered as suggestions alongside recents.
+// Bundled sample configs — the offline fallback when /configs/ is unreachable.
 const KNOWN_CONFIGS = ["demo_config.csv", "showcase_config.csv", "sample_config.csv"];
 
 export function AppShell() {
@@ -30,8 +31,21 @@ export function AppShell() {
   // refetch (and flash 404 errors) on every keystroke while a filename is typed.
   const [draft, setDraft] = useState(configFile);
   const [justApplied, setJustApplied] = useState(false);
+  // Configs actually available on the server (respects OPEN_STEWARD_CONFIG_DIR).
+  const [serverConfigs, setServerConfigs] = useState<string[]>([]);
 
   useEffect(() => setDraft(configFile), [configFile]);
+
+  useEffect(() => {
+    api
+      .listConfigs()
+      .then((c) => {
+        if (Array.isArray(c?.files)) setServerConfigs(c.files);
+      })
+      .catch(() => {
+        /* suggestions fall back to recents + bundled names */
+      });
+  }, []);
 
   const commitDraft = () => {
     const next = draft.trim();
@@ -44,10 +58,9 @@ export function AppShell() {
     }
   };
 
-  const suggestions = [
-    ...recentConfigs,
-    ...KNOWN_CONFIGS.filter((c) => !recentConfigs.includes(c)),
-  ];
+  const suggestions = Array.from(
+    new Set([...recentConfigs, ...serverConfigs, ...KNOWN_CONFIGS]),
+  );
 
   return (
     <div className="flex min-h-screen text-foreground">

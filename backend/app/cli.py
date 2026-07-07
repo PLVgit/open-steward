@@ -1,7 +1,10 @@
+import json
 import sys
 from pathlib import Path
 
 import typer
+
+from app import __version__
 
 from app.adapters.csv_adapter import CsvAdapter
 from app.adapters.data_source import DataSource
@@ -36,12 +39,40 @@ app = typer.Typer(
 )
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"open-steward {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        False, "--version", callback=_version_callback, is_eager=True,
+        help="Show the version and exit.",
+    ),
+) -> None:
+    """Open Steward — pipeline intelligence for Analytics Engineers."""
+
+
 # ── shared loaders ────────────────────────────────────────────────────────────
 
 # Reused option declarations: pipeline definitions come from exactly one of a
 # config CSV (--file) or a dbt manifest (--manifest).
 FILE_OPT = typer.Option(None, "--file", "-f", help="Path to ETL config CSV")
 MANIFEST_OPT = typer.Option(None, "--manifest", "-m", help="Path to a dbt manifest.json")
+OUTPUT_OPT = typer.Option("text", "--output", "-o", help="Output format: 'text' or 'json'.")
+
+
+def _validated_output(output: str) -> str:
+    if output not in ("text", "json"):
+        typer.echo(f"Error: invalid --output {output!r}; use 'text' or 'json'.", err=True)
+        raise typer.Exit(code=2)
+    return output
+
+
+def _echo_json(payload: object) -> None:
+    typer.echo(json.dumps(payload, indent=2))
 
 
 def _load_jobs(file: Path | None, manifest: Path | None) -> tuple[list[PipelineJob], Path]:
@@ -70,7 +101,9 @@ def _make_data_source(data_dir: Path | None, db: str | None) -> DataSource | Non
     if db is not None:
         try:
             return DatabaseDataSource(db)
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, ValueError) as exc:
+            # Connection/URL problems surface as one clear line (credentials
+            # redacted by the data source), never a driver traceback.
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=1)
     if data_dir is not None:
@@ -183,15 +216,39 @@ def check(
         None, "--db",
         help="Database for reconciliation: a DuckDB file or a postgres:// URL (optional).",
     ),
+    output: str = OUTPUT_OPT,
+    fail_on: str = typer.Option(
+        "error", "--fail-on",
+        help="Exit non-zero on findings of this severity or worse: 'error' (default) or 'warning'.",
+    ),
 ) -> None:
     """Run all structural checks and report findings."""
+    output = _validated_output(output)
+    if fail_on not in ("error", "warning"):
+        typer.echo(f"Error: invalid --fail-on {fail_on!r}; use 'error' or 'warning'.", err=True)
+        raise typer.Exit(code=2)
+
     jobs, path = _load_jobs(file, manifest)
     graph = build_graph(jobs)
     findings = detect_findings(jobs, graph)
     data_source = _make_data_source(data_dir, db)
     if data_source is not None:
         findings = findings + reconcile_jobs(jobs, data_source)
-    code = _render_check_text(findings, path)
+
+    errors = sum(1 for f in findings if f.severity == "error")
+    warnings = sum(1 for f in findings if f.severity == "warning")
+    infos = sum(1 for f in findings if f.severity == "info")
+
+    if output == "json":
+        _echo_json({
+            "config": path.name,
+            "summary": {"errors": errors, "warnings": warnings, "info": infos, "total": len(findings)},
+            "findings": [f.model_dump(mode="json") for f in findings],
+        })
+    else:
+        _render_check_text(findings, path)
+
+    code = 1 if errors or (fail_on == "warning" and warnings) else 0
     raise typer.Exit(code=code)
 
 
@@ -199,9 +256,14 @@ def check(
 def list_jobs(
     file: Path | None = FILE_OPT,
     manifest: Path | None = MANIFEST_OPT,
+    output: str = OUTPUT_OPT,
 ) -> None:
     """List all ETL jobs in the config."""
+    output = _validated_output(output)
     jobs, path = _load_jobs(file, manifest)
+    if output == "json":
+        _echo_json([j.model_dump(mode="json") for j in jobs])
+        return
     _render_list_text(jobs, path)
 
 
@@ -322,11 +384,16 @@ def stats(
     db: str | None = typer.Option(
         None, "--db", help="Database: a DuckDB file or a postgres:// URL.",
     ),
+    output: str = OUTPUT_OPT,
 ) -> None:
     """Show per-job ETL statistics (row counts, loss, primary-key metrics)."""
+    output = _validated_output(output)
     jobs, path = _load_jobs(file, manifest)
     ds = _require_data_source(data_dir, db)
     stats = compute_job_statistics(jobs, ds)
+    if output == "json":
+        _echo_json([s.model_dump(mode="json") for s in stats])
+        return
     _render_stats_text(stats, path)
 
 
@@ -339,8 +406,10 @@ def profile(
     db: str | None = typer.Option(
         None, "--db", help="Database: a DuckDB file or a postgres:// URL.",
     ),
+    output: str = OUTPUT_OPT,
 ) -> None:
     """Profile a table for data quality issues."""
+    output = _validated_output(output)
     ds = _require_data_source(data_dir, db)
     try:
         tbl = profile_table(table, ds)
@@ -348,6 +417,13 @@ def profile(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1)
     findings = detect_profile_findings(tbl)
+    if output == "json":
+        _echo_json({
+            "profile": tbl.model_dump(mode="json"),
+            "findings": [f.model_dump(mode="json") for f in findings],
+        })
+        code = 1 if any(f.severity == "error" for f in findings) else 0
+        raise typer.Exit(code=code)
     code = _render_profile_text(tbl, findings)
     raise typer.Exit(code=code)
 

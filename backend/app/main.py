@@ -3,9 +3,10 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
-from app.api.routes import findings, graph, pipelines, profile, statistics
+from app import __version__
+from app.api.routes import configs, findings, graph, pipelines, profile, statistics
 
-app = FastAPI(title="Open Steward", version="0.2.0")
+app = FastAPI(title="Open Steward", version=__version__)
 
 _ROUTERS = (
     (pipelines.router, "/pipelines", "pipelines"),
@@ -13,6 +14,7 @@ _ROUTERS = (
     (findings.router, "/findings", "findings"),
     (statistics.router, "/statistics", "statistics"),
     (profile.router, "/profile", "profile"),
+    (configs.router, "/configs", "configs"),
 )
 
 for router, prefix, tag in _ROUTERS:
@@ -21,6 +23,17 @@ for router, prefix, tag in _ROUTERS:
     # so the same routers are aliased there. Hidden from the OpenAPI schema to
     # keep /docs free of duplicates — the bare paths stay canonical.
     app.include_router(router, prefix=f"/api{prefix}", include_in_schema=False)
+
+
+@app.get("/health", tags=["system"])
+async def health() -> dict:
+    """Liveness + version, for monitoring and the UI."""
+    return {"status": "ok", "version": __version__}
+
+
+@app.get("/api/health", include_in_schema=False)
+async def health_alias() -> dict:
+    return {"status": "ok", "version": __version__}
 
 
 @app.exception_handler(ValueError)
@@ -74,11 +87,11 @@ async def ui_index() -> FileResponse | JSONResponse:
 
 
 # All canonical API roots (each served at "/<root>/" and "/api/<root>/").
-_API_ROOTS = {"pipelines", "graph", "findings", "statistics", "profile"}
+_API_ROOTS = {"pipelines", "graph", "findings", "statistics", "profile", "configs"}
 # Roots that exist ONLY as API namespaces — no SPA route lives there. The other
 # roots double as SPA client routes (/graph, /findings, …), which own the
 # slashless form in the browser; their API canonical stays the slashed form.
-_API_ONLY_ROOTS = {"pipelines"}
+_API_ONLY_ROOTS = {"pipelines", "configs"}
 
 _JSON_404 = {"detail": "Not Found"}
 
