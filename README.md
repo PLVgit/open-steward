@@ -195,7 +195,15 @@ Analysis stays **aggregate-only** in every mode: scalar counts, never raw rows.
 are env-configurable (defaults remain the bundled demo):
 
 ```bash
+# bash / zsh
 OPEN_STEWARD_CONFIG_DIR=/path/to/your/configs OPEN_STEWARD_DATA_DIR=/path/to/your/data open-steward serve
+```
+
+```powershell
+# Windows PowerShell
+$env:OPEN_STEWARD_CONFIG_DIR = "C:\path\to\your\configs"
+$env:OPEN_STEWARD_DATA_DIR = "C:\path\to\your\data"
+open-steward serve
 ```
 
 **Wire it into CI** — machine-readable output and a strictness dial:

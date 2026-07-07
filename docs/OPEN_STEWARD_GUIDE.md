@@ -620,45 +620,7 @@ and falls back safely otherwise. Current coverage:
 
 ---
 
-## 13. How to present this project
-
-**What it demonstrates technically:**
-
-- A clean, layered Python backend with a single service layer behind both a CLI
-  and a FastAPI service — no logic duplication.
-- An aggregate-only data-access abstraction (`DataSource` protocol) designed to be
-  connector-ready, implemented over DuckDB for local files.
-- Real SQL parsing and AST analysis with sqlglot, applied conservatively.
-- A genuinely interesting domain idea — **transformation-aware reconciliation**
-  that explains row-count changes through filters and joins rather than just
-  flagging differences.
-- A typed React + TypeScript frontend (Vite, Tailwind, shadcn/ui, React Flow) with
-  a dev proxy and unit tests.
-- Strong test discipline: 350+ tests across backend and frontend, including pure
-  unit tests for the analysis logic.
-- CI, an MIT license, and honest, verified documentation.
-
-**Why it's relevant** for Analytics Engineering / Data Engineering / Data Platform
-roles: it speaks directly to the day-to-day concerns of pipeline observability,
-data quality, and "did my transformation do what I think it did?" — and shows the
-ability to design a small platform end to end (parsing, analysis, API, CLI, UI,
-tests, docs).
-
-**Short GitHub description:**
-> Local-first pipeline intelligence & data-quality tool for SQL-config ETL:
-> dependency graph, SQL risk analysis, transformation-aware reconciliation
-> (filter + join), and table profiling — via CLI, FastAPI, and a React UI.
-
-**CV-ready description:**
-> Built Open Steward, a local-first pipeline-intelligence tool that parses
-> SQL-config ETL pipelines, reconstructs dependencies, analyzes SQL risk with
-> sqlglot, and explains row-count changes through filter- and join-aware
-> reconciliation over DuckDB — exposed through a typer CLI, a FastAPI service, and
-> a typed React/TypeScript UI, with 350+ tests and CI.
-
----
-
-## 14. Roadmap / possible future work
+## 13. Roadmap / possible future work
 
 Future ideas only — none of these are implemented yet:
 

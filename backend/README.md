@@ -418,8 +418,8 @@ python -m pytest -v
 
 Analysis is deliberately conservative — Open Steward explains what it can prove and falls back safely otherwise.
 
-- **One source table per job.** `PipelineJob.source_table` is a single string. Jobs that join multiple tables are modelled through the job's SQL (see join-aware reconciliation), with the raw SQL preserved for analysis.
-- **Reconciliation reads table data** from CSV or Parquet under `--data-dir`.
+- **One primary source table per job in reconciliation.** `PipelineJob.source_table` drives reconciliation; jobs that join multiple tables are modelled through the job's SQL (see join-aware reconciliation), and multi-parent lineage (e.g. dbt models with several refs) is preserved in the dependency graph via `depends_on`.
+- **Reconciliation reads table data** from CSV/Parquet snapshots under `--data-dir`, or from a database via `--db` (a DuckDB file, or a `postgres://` URL with `${ENV_VAR}` credentials).
 - **Single-column primary keys.** Composite primary keys (e.g. `order_id, line_id`) are not yet covered in reconciliation or profiling.
 - **Simple SQL shapes for transformation explanation** — a single `SELECT`, one two-table INNER/LEFT join, a single equality `ON`, and a simple left-side `WHERE`. More complex SQL falls back to plain row-count reconciliation.
 - **Column name restrictions.** Columns with spaces or special characters (e.g. `Order Date`) are skipped in profiling. Column names must match `[A-Za-z0-9_]+`.
@@ -429,14 +429,16 @@ Analysis is deliberately conservative — Open Steward explains what it can prov
 ## Roadmap
 
 **Shipped**
-- React + TypeScript UI with an interactive pipeline graph (React Flow), findings dashboard, ETL statistics panel and table profile page.
-- ETL-level statistics, exposed via the `stats` CLI command and the `/statistics/` endpoint.
+- React + TypeScript UI with an interactive pipeline graph (React Flow), findings dashboard, ETL statistics panel and table profile page — served as a single app by FastAPI via `open-steward serve`.
+- **dbt manifest adapter** (`--manifest` / `manifest=`): models become jobs with multi-parent lineage, compiled SQL, and primary keys derived from dbt's `unique` tests.
+- **Database data sources** (`--db`): DuckDB database files and Postgres (attached read-only via DuckDB's postgres extension), with the same aggregate-only guarantees as file snapshots.
+- ETL-level statistics (`stats` CLI command, `/statistics/` endpoint) and table discovery (`tables` command, `/tables/` endpoint).
 - Filter-aware reconciliation: full-load row drops explained by a simple `WHERE` filter are reported as expected (`row_loss_explained_by_filter`) instead of false-positive `row_count_drop`; shortfalls below the filtered count are flagged as `unexpected_row_loss`.
 - Join-aware advisory statistics: simple two-table INNER/LEFT joins are explained as a staged `source → after_filter → expected_after_join → target` chain, with advisory findings for unmatched rows, null keys and possible row multiplication / many-to-many fan-out.
+- **Tunable strictness**: `--row-loss-tolerance` for reconciliation and `--null-threshold`/`--empty-threshold` for profiling (defaults unchanged).
+- **CI-friendly output**: `--output json` on `list`/`check`/`stats`/`profile`/`tables`, plus `--fail-on warning` on `check`.
 
 **Later** (not started)
 - More transformation shapes: RIGHT/FULL/NATURAL joins, composite join keys, multiple joins, post-join WHERE.
-- Additional data-source integrations and adapters.
-- Row-loss tolerance thresholds per job (`row_loss_tolerance_pct`).
-- Distribution and histogram profiling (e.g. via Polars).
-- `--output json` flag on all CLI commands; suggested data-quality rules from profile results.
+- Further adapters and connectors (ADF, dbt `catalog.json`, Snowflake/BigQuery).
+- Distribution and histogram profiling; suggested data-quality rules from profile results.
