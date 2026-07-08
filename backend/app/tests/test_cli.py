@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -350,7 +351,11 @@ def test_db_file_not_found_clear_error():
 def test_serve_command_registered():
     result = runner.invoke(app, ["serve", "--help"])
     assert result.exit_code == 0
-    assert "--port" in result.output
+    # On CI, GITHUB_ACTIONS=true makes rich render --help with ANSI styling
+    # that interleaves escape codes into option names — strip them before
+    # asserting on content, so the test passes in both plain and styled modes.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--port" in plain
 
 
 # ── --version ─────────────────────────────────────────────────────────────────
